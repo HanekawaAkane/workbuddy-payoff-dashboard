@@ -1,0 +1,20 @@
+# 本机真实数据一律不入库：含提示词摘要、路径、用量明细
+output/
+!output/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# WorkBuddy 本地状态
+.workbuddy/
