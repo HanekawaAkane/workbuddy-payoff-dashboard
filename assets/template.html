@@ -118,7 +118,9 @@ section{margin-bottom:34px;scroll-margin-top:64px}
 .seg button{border:0;background:transparent;padding:5px 12px;border-radius:6px;font-size:12px;
   font-weight:600;color:var(--muted);cursor:pointer}
 .seg button.on{background:#fff;color:var(--accent);box-shadow:0 1px 4px rgba(16,24,40,.09)}
-.chartbox{width:100%;overflow:hidden}
+.chartbox{width:100%;overflow-x:auto;overflow-y:hidden}
+.chartbox::-webkit-scrollbar{height:7px}
+.chartbox::-webkit-scrollbar-thumb{background:#d8dceb;border-radius:4px}
 .chartbox svg{width:100%;height:auto;display:block}
 .legend{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}
 .lg{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:20px;
@@ -264,7 +266,7 @@ footer{border-top:1px solid var(--border);padding:22px 0 40px;color:var(--faint)
 
 <nav><div class="wrap">
   <a href="#s1">01 · 热力图</a>
-  <a href="#s2">02 · 时段分布</a>
+  <a href="#s2">02 · 模型分布</a>
   <a href="#s3">03 · 三级下钻</a>
   <a href="#s4">04 · 价格口径</a>
   <a href="#s5">05 · 打开方式</a>
@@ -304,15 +306,21 @@ footer{border-top:1px solid var(--border);padding:22px 0 40px;color:var(--faint)
 
   <!-- 02 -->
   <section id="s2">
-    <div class="sec-head"><span class="eyebrow">02 / Hourly</span><h2>0–24 时模型分布</h2>
-      <span class="desc">堆叠柱按模型着色，点柱体按时段下钻</span></div>
+    <div class="sec-head"><span class="eyebrow">02 / Distribution</span><h2>模型分布</h2>
+      <span class="desc">按天 / 0–24 时切换，堆叠柱按模型着色，点柱体下钻</span></div>
     <div class="card">
       <div class="card-head">
-        <h3>全天用量节奏</h3>
-        <div class="seg" id="metricSeg">
-          <button data-m="tokens" class="on">Token</button>
-          <button data-m="credit">积分</button>
-          <button data-m="cost">API ¥</button>
+        <h3 id="distTitle">每日模型分布</h3>
+        <div style="display:flex;gap:9px;flex-wrap:wrap;align-items:center">
+          <div class="seg" id="granSeg">
+            <button data-g="day" class="on">按天</button>
+            <button data-g="hour">0–24 时</button>
+          </div>
+          <div class="seg" id="metricSeg">
+            <button data-m="tokens" class="on">Token</button>
+            <button data-m="credit">积分</button>
+            <button data-m="cost">API ¥</button>
+          </div>
         </div>
       </div>
       <div class="chartbox" id="hourlyChart"></div>
@@ -516,7 +524,7 @@ const allMonths=months.slice();
 
 const state={
   month: months[months.length-1], day:null, hour:null, model:null,
-  sessionIdx:null, requestIdx:null, metric:'tokens',
+  sessionIdx:null, requestIdx:null, metric:'tokens', gran:'day',
   plan:D.default_plan, baseOnly:false, search:'', sortKey:null, sortDir:-1,
   openCall:null
 };
@@ -682,59 +690,91 @@ function peakDay(ids){
   return e?e[0].slice(5)+' · '+tok(e[1]):'—';
 }
 
-/* ---------- hourly stacked chart ---------- */
-function renderHourly(){
-  const ids=filterCalls({skipHour:true});
-  const per=Array.from({length:24},()=>({}));
-  for(const i of ids){ const c=D.calls[i], h=cHour[i], m=c[C_MODEL];
+/* ---------- stacked distribution: by day (default) or by hour ---------- */
+const WEEKDAY=['周日','周一','周二','周三','周四','周五','周六'];
+function dayLabel(ds){
+  const d=new Date(ds+'T00:00:00Z');
+  return ds.slice(5).replace('-','/')+' · '+WEEKDAY[d.getUTCDay()];
+}
+function renderDistribution(){
+  const isDay=state.gran==='day';
+  const ids=filterCalls(isDay?{skipDay:true}:{skipHour:true});
+  // 天粒度：只画有调用记录的日期，按时间排序；小时粒度：固定 24 个桶
+  let buckets;
+  if(isDay) buckets=[...new Set(ids.map(i=>cDay[i]))].sort();
+  else buckets=Array.from({length:24},(_,k)=>k);
+  const n=buckets.length;
+  const bIndex=new Map(buckets.map((b,k)=>[String(b),k]));
+  const per=Array.from({length:n},()=>({}));
+  for(const i of ids){
+    const c=D.calls[i], k=bIndex.get(String(isDay?cDay[i]:cHour[i]));
+    if(k===undefined) continue;
+    const m=c[C_MODEL];
     const v = state.metric==='credit' ? c[C_CR] : state.metric==='cost' ? c[C_COST] :
       (c[C_HIT]+c[C_MISS]+c[C_OUT]+c[C_WRITE]);
-    per[h][m]=(per[h][m]||0)+v; }
+    per[k][m]=(per[k][m]||0)+v;
+  }
   const totals=per.map(x=>Object.values(x).reduce((a,b)=>a+b,0));
-  const byModel={}; for(const h of per) for(const [m,v] of Object.entries(h)) byModel[m]=(byModel[m]||0)+v;
+  const byModel={}; for(const b of per) for(const [m,v] of Object.entries(b)) byModel[m]=(byModel[m]||0)+v;
   const order=Object.entries(byModel).sort((a,b)=>b[1]-a[1]).map(x=>Number(x[0]));
   const top=order.slice(0,9), other=order.slice(9);
   const groups=top.map(m=>({m,label:D.models[m][M_DISPLAY],color:modelColor(m)}));
   if(other.length) groups.push({m:-1,label:'其他 '+(other.length)+' 个模型',color:'#b6bdcc'});
-  const W=1080,H=300,PL=72,PR=14,PT=14,PB=38,plotW=W-PL-PR,plotH=H-PT-PB;
-  const max=Math.max(1,...totals), step=plotW/24, bw=Math.min(30,step-7);
-  const yMax=niceMax(max);
-  let s=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="0-24时模型分布">`;
+
+  const H=300,PL=72,PR=14,PT=14,PB=38;
+  const W=isDay?Math.max(1080,PL+PR+n*30):1080;
+  const plotW=W-PL-PR,plotH=H-PT-PB;
+  const step=plotW/Math.max(n,1),bw=Math.max(3,Math.min(isDay?90:30,step-7));
+  const yMax=niceMax(Math.max(1,...totals));
+  const svgStyle=isDay&&W>1080?` style="width:${W}px;max-width:none"`:'';
+  let s=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"${svgStyle} role="img" aria-label="${isDay?'每日':'0-24时'}模型分布">`;
   for(let g=0;g<=4;g++){
     const y=PT+plotH-plotH*g/4;
     s+=`<line x1="${PL}" y1="${y}" x2="${W-PR}" y2="${y}" stroke="#e9ecf4" stroke-width="1"/>`;
     s+=`<text x="${PL-9}" y="${y+4}" text-anchor="end" font-size="10.5" fill="#a0a7b8">${axisLabel(yMax*g/4)}</text>`;
   }
-  for(let h=0;h<24;h++){
-    const x=PL+step*h+(step-bw)/2;
-    if(state.hour===h) s+=`<rect x="${PL+step*h+1}" y="${PT}" width="${step-2}" height="${plotH}" fill="#4f46e5" opacity="0.055" rx="4"/>`;
+  const stride=isDay?Math.max(1,Math.ceil(n/26)):1;
+  for(let k=0;k<n;k++){
+    const b=buckets[k], bx=PL+step*k, x=bx+(step-bw)/2;
+    const sel=isDay?(state.day===b):(state.hour===b);
+    if(sel) s+=`<rect x="${bx+1}" y="${PT}" width="${step-2}" height="${plotH}" fill="#4f46e5" opacity="0.065" rx="4"/>`;
     let y=PT+plotH;
     for(const g of groups){
       let v=0;
-      if(g.m===-1){ for(const m of other) v+=per[h][m]||0; } else v=per[h][g.m]||0;
+      if(g.m===-1){ for(const m of other) v+=per[k][m]||0; } else v=per[k][g.m]||0;
       if(v<=0) continue;
       const bh=Math.max(1.2,v/yMax*plotH); y-=bh;
-      s+=`<rect class="bar-rect" data-h="${h}" data-m="${g.m}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" fill="${g.color}" opacity="${state.model!==null&&state.model!==g.m?0.28:0.92}"><title>${h}:00 · ${esc(g.label)}: ${fmtMetric(v)}</title></rect>`;
+      s+=`<rect class="bar-rect" data-b="${esc(b)}" data-m="${g.m}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" fill="${g.color}" opacity="${state.model!==null&&state.model!==g.m?0.28:0.92}"><title>${esc(isDay?b:String(b).padStart(2,'0')+':00')} · ${esc(g.label)}: ${fmtMetric(v)}</title></rect>`;
     }
-    s+=`<text x="${PL+step*h+step/2}" y="${H-16}" text-anchor="middle" font-size="10" fill="${state.hour===h?'#4f46e5':'#9aa1b3'}" font-weight="${state.hour===h?700:400}">${h}</text>`;
-    s+=`<rect class="bar-hit" data-h="${h}" x="${PL+step*h}" y="${PT}" width="${step}" height="${plotH}" fill="transparent"/>`;
+    const showLabel=!isDay||k%stride===0||sel;
+    if(showLabel) s+=`<text x="${bx+step/2}" y="${H-16}" text-anchor="middle" font-size="10" fill="${sel?'#4f46e5':'#9aa1b3'}" font-weight="${sel?700:400}">${isDay?String(b).slice(5).replace('-','/'):b}</text>`;
+    s+=`<rect class="bar-hit" data-b="${esc(b)}" x="${bx}" y="${PT}" width="${step}" height="${plotH}" fill="transparent"/>`;
   }
   s+=`</svg>`;
-  $('#hourlyChart').innerHTML=s;
+  $('#hourlyChart').innerHTML=n?s:`<div class="empty-row">当前筛选下没有记录</div>`;
+  $('#distTitle').textContent=isDay?'每日模型分布':'全天用量节奏';
   $('#hourlyChart').querySelectorAll('.bar-rect,.bar-hit').forEach(el=>{
+    const bRaw=el.dataset.b, k=bIndex.get(String(isDay?bRaw:+bRaw));
+    const mm=el.dataset.m;
     el.addEventListener('mousemove',e=>{
-      const h=+el.dataset.h, mm=el.dataset.m;
-      const v = mm===undefined||mm===null||mm==='' ? totals[h] :
-        (mm==='-1' ? other.reduce((a,m)=>a+(per[h][m]||0),0) : (per[h][mm]||0));
+      const v = mm===undefined||mm===null||mm==='' ? totals[k] :
+        (mm==='-1' ? other.reduce((a,m)=>a+(per[k][m]||0),0) : (per[k][mm]||0));
       const name = mm===undefined||mm===null||mm==='' ? '全部模型' :
         (mm==='-1' ? groups[groups.length-1].label : D.models[mm][M_DISPLAY]);
-      showTip(e,`<b>${String(h).padStart(2,'0')}:00 – ${String(h).padStart(2,'0')}:59</b>
+      const head=isDay?`<b>${esc(bRaw)} · ${WEEKDAY[new Date(bRaw+'T00:00:00Z').getUTCDay()]}</b>`:
+        `<b>${String(+bRaw).padStart(2,'0')}:00 – ${String(+bRaw).padStart(2,'0')}:59</b>`;
+      showTip(e,`${head}
         <div class="row"><span>${esc(name)}</span><span>${fmtMetric(v)}</span></div>
-        <div class="row"><span>该小时合计</span><span>${fmtMetric(totals[h])}</span></div>
-        <div style="color:#a8b0c8;margin-top:4px">点击按此小时下钻</div>`);
+        <div class="row"><span>${isDay?'该日合计':'该小时合计'}</span><span>${fmtMetric(totals[k])}</span></div>
+        <div style="color:#a8b0c8;margin-top:4px">点击${isDay?'按此日':'按此小时'}下钻</div>`);
     });
-    el.addEventListener('click',()=>{ state.hour=(state.hour===+el.dataset.h?null:+el.dataset.h);
-      state.sessionIdx=null; state.requestIdx=null; renderAll(); });
+    el.addEventListener('click',()=>{
+      if(isDay){ state.day=(state.day===bRaw?null:bRaw); state.hour=null;
+        if(state.month!=='ALL'&&state.day&&state.day.slice(0,7)!==state.month) state.month=state.day.slice(0,7); }
+      else { state.hour=(state.hour===+bRaw?null:+bRaw); state.day=null; }
+      state.sessionIdx=null; state.requestIdx=null; state.openCall=null; renderAll();
+      document.querySelector('#s3').scrollIntoView({behavior:'smooth'});
+    });
   });
   $('#modelLegend').innerHTML=groups.map(g=>{
     const on=state.model===g.m;
@@ -745,8 +785,13 @@ function renderHourly(){
     state.model = m==='clear' ? null : (state.model===+m?null:+m);
     renderAll();
   }));
-  const peakN=ids.filter(i=>D.calls[i][C_PEAK]===1).length;
-  $('#peakHint').textContent=`峰时（工作日 09–12 / 14–18）调用 ${nf(peakN)} 次，占 ${pct(ids.length?peakN/ids.length:0)}；DeepSeek 系模型按峰谷分别计价。`;
+  if(isDay){
+    let mi=0; for(let k=1;k<n;k++) if(totals[k]>totals[mi]) mi=k;
+    $('#peakHint').textContent=`当前范围共 ${n} 天有调用 · 峰值日 ${buckets[mi]}（${fmtMetric(totals[mi])}）· 点柱体下钻到当天；柱体按模型堆叠。`;
+  } else {
+    const peakN=ids.filter(i=>D.calls[i][C_PEAK]===1).length;
+    $('#peakHint').textContent=`峰时（工作日 09–12 / 14–18）调用 ${nf(peakN)} 次，占 ${pct(ids.length?peakN/ids.length:0)}；DeepSeek 系模型按峰谷分别计价。`;
+  }
 }
 function niceMax(v){ if(v<=0) return 1; const e=Math.pow(10,Math.floor(Math.log10(v))); const n=v/e; return (n<=1?1:n<=2?2:n<=5?5:10)*e; }
 function axisLabel(v){ if(state.metric==='tokens') return tok(v); if(state.metric==='credit') return cr(v); return '¥'+v.toFixed(v<10?1:0); }
@@ -962,7 +1007,7 @@ function renderPricing(){
 
 /* ---------- init / controls ---------- */
 function renderAll(){
-  renderKpis(); renderHeat(); renderSide(); renderHourly();
+  renderKpis(); renderHeat(); renderSide(); renderDistribution();
   renderChips(); renderCrumbs(); renderTable(); renderPricing();
   $('#navMeta').textContent=`${nf(D.meta.n_calls)} 次调用 · ${D.meta.n_models} 个模型`;
   $('#scopeTxt').textContent=scopeLabel();
@@ -977,6 +1022,10 @@ function initControls(){
   $('#allM').addEventListener('click',()=>{state.month=state.month==='ALL'?months[months.length-1]:'ALL';resetDrill();renderAll();});
   $('#metricSeg').querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{
     state.metric=b.dataset.m; $('#metricSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); renderAll(); }));
+  $('#granSeg').querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{
+    state.gran=b.dataset.g; state.hour=null; state.day=null;
+    state.sessionIdx=null; state.requestIdx=null; state.openCall=null;
+    $('#granSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); renderAll(); }));
   $('#search').addEventListener('input',e=>{state.search=e.target.value;renderTable();});
   $('#resetBtn').addEventListener('click',()=>{state.month=months[months.length-1];resetDrill();state.search='';$('#search').value='';renderAll();});
   $('#exportBtn').addEventListener('click',exportCsv);

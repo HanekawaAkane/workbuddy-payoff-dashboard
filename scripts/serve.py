@@ -78,8 +78,16 @@ class State:
         self.generated = ""
         self.error = ""
 
-    def rebuild(self, force: bool = False):
+    def signature(self) -> float:
+        """数据源 + 模板 + 价格表的综合修改时间；模板改了也要重新渲染。"""
         sig = collect.source_signature(self.home)
+        for p in (self.template, self.config, ROOT / "scripts" / "serve.py"):
+            if p.exists():
+                sig = max(sig, p.stat().st_mtime)
+        return sig
+
+    def rebuild(self, force: bool = False):
+        sig = self.signature()
         with self.lock:
             if self.html and not force and sig <= self.sig:
                 return
@@ -150,7 +158,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/status":
             # 探测也顺带检查源数据是否变化，变了就后台重算，页面下一次刷新会拿到新数据
-            sig = collect.source_signature(STATE.home)
+            sig = STATE.signature()
             with STATE.lock:
                 stale = sig > STATE.sig
             if stale:

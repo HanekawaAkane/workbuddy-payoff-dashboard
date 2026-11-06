@@ -141,6 +141,8 @@ class TestRender(unittest.TestCase):
             self.assertFalse('<script src=' in html, "模板引入了外部脚本")
             self.assertFalse('<link rel="stylesheet"' in html, "模板引入了外部样式")
             self.assertIn('id="__DATA__"', html)
+            self.assertIn('id="granSeg"', html)          # 按天 / 0-24 时粒度切换
+            self.assertIn('renderDistribution()', html)   # 泛化后的堆叠柱渲染
             # 内存渲染与文件渲染结果一致
             self.assertEqual(html, render_html(data, ROOT / "assets" / "template.html"))
 
