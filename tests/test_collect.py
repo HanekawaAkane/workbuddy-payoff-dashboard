@@ -2,15 +2,18 @@
 """纯标准库单元测试：python -m unittest discover -s tests -v"""
 from __future__ import annotations
 import json
+import os
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 import collect  # noqa: E402
-from render import safe_json, render  # noqa: E402
+import serve  # noqa: E402
+from render import safe_json, render, render_html  # noqa: E402
 
 PRICING = json.loads((ROOT / "config" / "pricing.json").read_text(encoding="utf-8"))
 
@@ -134,8 +137,49 @@ class TestRender(unittest.TestCase):
             out = render(d / "data.json", ROOT / "assets" / "template.html", d / "out.html")
             html = out.read_text(encoding="utf-8")
             self.assertNotIn("__DASHBOARD_DATA__", html)
-            self.assertNotIn("http://", html.replace("http://www.w3.org", ""))
+            # 零外部依赖：不能有 CDN 脚本 / 样式表（文档里的 localhost 示例链接不算）
+            self.assertFalse('<script src=' in html, "模板引入了外部脚本")
+            self.assertFalse('<link rel="stylesheet"' in html, "模板引入了外部样式")
             self.assertIn('id="__DATA__"', html)
+            # 内存渲染与文件渲染结果一致
+            self.assertEqual(html, render_html(data, ROOT / "assets" / "template.html"))
+
+
+class TestLiveServer(unittest.TestCase):
+    def test_source_signature_tracks_changes(self):
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            (home / "projects").mkdir()
+            (home / "workbuddy.db").write_bytes(b"x")
+            f = home / "projects" / "a.jsonl"
+            f.write_text("{}\n", encoding="utf-8")
+            s1 = collect.source_signature(home)
+            self.assertGreater(s1, 0)
+            os.utime(f, (time.time() + 5, time.time() + 5))
+            self.assertGreater(collect.source_signature(home), s1)
+
+    def test_state_rebuild_and_live_bar(self):
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            (home / "projects").mkdir()
+            # 故意不建 workbuddy.db：验证「无账单」时也能正常回退
+            (home / "projects" / "a.jsonl").write_text(
+                json.dumps({"type": "message", "timestamp": 1793930000000,
+                            "providerData": {"messageId": "m1", "model": "glm-5.3-flash",
+                                             "conversationRequestId": "r1",
+                                             "rawUsage": {"prompt_tokens": 1110, "completion_tokens": 50,
+                                                          "prompt_cache_hit_tokens": 1000,
+                                                          "prompt_cache_miss_tokens": 110,
+                                                          "credit": 0.1}}}) + "\n",
+                encoding="utf-8")
+            st = serve.State(home, ROOT / "config" / "pricing.json",
+                             ROOT / "assets" / "template.html", False)
+            st.rebuild(force=True)
+            self.assertTrue(st.status()["ok"], st.status()["error"])
+            self.assertIn('id="livebar"', st.html)
+            self.assertIn("/api/refresh", st.html)
+            self.assertNotIn("__DASHBOARD_DATA__", st.html)
+            self.assertEqual(st.status()["n_calls"], 1)
 
 
 if __name__ == "__main__":

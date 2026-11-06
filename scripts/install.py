@@ -36,7 +36,8 @@ def main():
 
     (dest / "output").mkdir(exist_ok=True)
     print(f"[OK] 已安装 {copied} 个文件 -> {dest}")
-    print("[NEXT] 在 WorkBuddy 里启用该 Skill；首次启用时会创建每天 09:00 的自动刷新任务。")
+    print("[NEXT] 看板不依赖 Skill：双击 open-snapshot.bat 或 start-live.bat 即可外部打开。")
+    print("[NEXT] 在 WorkBuddy 里启用该 Skill 后，也可以用「看看 token 消耗」触发。默认不创建定时任务。")
     print("[NOTE] 仓库源码改动后请重新运行本脚本同步。")
     return 0
 

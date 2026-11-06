@@ -267,7 +267,7 @@ footer{border-top:1px solid var(--border);padding:22px 0 40px;color:var(--faint)
   <a href="#s2">02 · 时段分布</a>
   <a href="#s3">03 · 三级下钻</a>
   <a href="#s4">04 · 价格口径</a>
-  <a href="#s5">05 · 自动更新</a>
+  <a href="#s5">05 · 打开方式</a>
   <span class="spacer"></span>
   <span class="built" id="navMeta"></span>
 </div></nav>
@@ -427,24 +427,28 @@ footer{border-top:1px solid var(--border);padding:22px 0 40px;color:var(--faint)
 
   <!-- 05 -->
   <section id="s5">
-    <div class="sec-head"><span class="eyebrow">05 / Automation</span><h2>每天 9:00 全自动更新</h2>
-      <span class="desc">不用每次在会话里喊一句「帮我看看 token」</span></div>
+    <div class="sec-head"><span class="eyebrow">05 / Access</span><h2>怎么打开它，数据怎么变新</h2>
+      <span class="desc">自动任务只是可选项，不是查看的前提</span></div>
     <div class="grid2b">
       <div class="card">
-        <div class="card-head"><h3>定时任务做什么</h3></div>
-        <div class="step"><span class="n">1</span><div><div class="tt">重新采集</div>
-          <div class="dd">读取最新本地会话日志与积分账单，重算四段 token、模型分布、两种价格。</div></div></div>
-        <div class="step"><span class="n">2</span><div><div class="tt">生成带时间戳的看板</div>
-          <div class="dd"><span class="mono">token-dashboard-YYYYMMDD-HHMMSS.html</span>，单文件、离线可看。</div></div></div>
-        <div class="step"><span class="n">3</span><div><div class="tt">上传资料库</div>
-          <div class="dd">把当天最新看板上传到 WorkBuddy 资料库，在软件界面里直接点开，不用翻会话记录。</div></div></div>
-        <div class="step"><span class="n">4</span><div><div class="tt">不逆向改客户端</div>
-          <div class="dd">放弃往软件菜单里塞入口的做法——客户端一升级菜单就没了。定时任务 + 资料库是稳定方案。</div></div></div>
+        <div class="card-head"><h3>两种外部打开方式</h3></div>
+        <div class="step"><span class="n">A</span><div><div class="tt">双击 <span class="mono">open-snapshot.bat</span></div>
+          <div class="dd">打开时重新采集一遍，把数据写死进 <span class="mono">token-dashboard-latest.html</span> 并唤起浏览器。等价命令 <span class="mono">python scripts/run.py --open</span>。不双击就是上次那份快照。</div></div></div>
+        <div class="step"><span class="n">B</span><div><div class="tt">双击 <span class="mono">start-live.bat</span>（推荐）</div>
+          <div class="dd">启动只监听 127.0.0.1 的本地服务，浏览器打开 <span class="mono">http://127.0.0.1:8765/</span>。每次请求检查日志修改时间，源数据变了现场重算；页面每 20 秒自动探测并重载，右下角可手动「重新读取」。<span class="mono">/api/data</span> 直接给原始 JSON。</div></div></div>
+        <div class="step"><span class="n">C</span><div><div class="tt">定时任务（可选）</div>
+          <div class="dd">每天 09:00 跑一次 <span class="mono">run.py --no-prompts</span> 并上传资料库。适合「不在电脑前也想留一份」；缺点是当天中途的数据看不到，且天天上传会在资料库堆一坨快照。本项目默认不创建。</div></div></div>
+        <div class="step"><span class="n">!</span><div><div class="tt">为什么静态页面不能自己读数据</div>
+          <div class="dd">浏览器 <span class="mono">file://</span> 沙箱禁止页面 JS 读取 <span class="mono">~/.workbuddy/</span>。所以「写死」和「打开即最新」互斥——必须有浏览器外的进程重写一次。A/B/C 只是三种触发方式。</div></div></div>
       </div>
       <div class="card">
-        <div class="card-head"><h3>手动运行 / 安装</h3></div>
-        <pre class="code"><span class="cm"># 一键刷新（采集 + 渲染）</span>
-python scripts/run.py
+        <div class="card-head"><h3>命令速查</h3></div>
+        <pre class="code"><span class="cm"># A 一键快照 + 打开浏览器</span>
+python scripts/run.py --open
+
+<span class="cm"># B 本地实时服务（打开即最新，Ctrl+C 停止）</span>
+python scripts/serve.py --open
+python scripts/serve.py --no-prompts --port 8765
 
 <span class="cm"># 只采集，输出中间数据</span>
 python scripts/collect.py --out output/data.json
@@ -452,11 +456,11 @@ python scripts/collect.py --out output/data.json
 <span class="cm"># 对外发布用：剔除提示词摘要</span>
 python scripts/collect.py --no-prompts --out public/data.json
 
-<span class="cm"># 安装为 WorkBuddy Skill</span>
+<span class="cm"># 安装为 WorkBuddy Skill（可选）</span>
 python scripts/install.py</pre>
         <div class="note" style="margin-bottom:0">
-          首次安装时 Skill 会创建每天 09:00 的 WorkBuddy 定时任务（可在「自动化」里暂停或修改）。
-          数据全程只在本机读取；上传资料库的是<b>聚合后的 HTML</b>，可用 <span class="mono">--no-prompts</span> 去掉提示词摘要。
+          Skill 只是让 WorkBuddy Agent 能调用这些脚本，<b>不是浏览器插件</b>；看板本身不依赖它。
+          数据全程只在本机读取；服务只绑回环地址。上传资料库或对外分享前务必用 <span class="mono">--no-prompts</span>。
         </div>
       </div>
     </div>

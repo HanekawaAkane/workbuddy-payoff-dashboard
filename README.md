@@ -27,22 +27,63 @@ WorkBuddy 客户端本身不提供逐请求的用量明细。但它在本机留�
 
 需要 Python 3.9+，**无任何第三方依赖**。
 
-```bash
-git clone https://github.com/<your-name>/workbuddy-token-dashboard.git
-cd workbuddy-token-dashboard
+### 方式 A · 双击打开就是最新数据（最简单）
 
-python scripts/run.py          # 采集 + 渲染，输出到 output/
-```
-
-打开 `output/token-dashboard-<时间戳>.html` 即可。HTML 内嵌全部数据与样式，断网、拷到别的机器、发邮件都能看。
+Windows 双击 **`open-snapshot.bat`**：重新采集 → 重写 `output/token-dashboard-latest.html` → 用默认浏览器打开。
+数据在这一刻被"写死"进 HTML，之后是快照；想看更新的再双击一次。
 
 ```bash
-python scripts/install.py      # 安装为 ~/.workbuddy/skills/ 下的 Skill
-python scripts/run.py --no-prompts   # 剔除提示词摘要，适合对外分享 / 上传资料库
-python scripts/make_sample.py       # 用合成数据重新生成示例看板
+python scripts/run.py --open        # 等价命令，跨平台
 ```
 
-非默认数据目录：`python scripts/run.py --home "D:/somewhere/.workbuddy"` 或设环境变量 `WORKBUDDY_HOME`。
+把 `output/token-dashboard-latest.html` 拖进浏览器书签也行，但记住那是上次生成的快照。
+
+### 方式 B · 本地服务，打开即实时（推荐）
+
+Windows 双击 **`start-live.bat`**，或：
+
+```bash
+python scripts/serve.py --open      # 打开 http://127.0.0.1:8765/
+```
+
+- 服务只监听 `127.0.0.1`，只读本机文件，不联网、不写数据。
+- 每次请求都检查 WorkBuddy 日志/数据库的修改时间，**源数据变了就现场重新采集并渲染**。
+- 页面每 20 秒探一次，发现变化自动重载；也可点右下角「重新读取」强制重算。
+- `/api/data` 直接返回原始 JSON，方便别的工具接。
+- Ctrl+C 停止。把地址存成浏览器书签，就是你要的"一个固定入口"。
+
+`/api/status`、`/api/refresh`、`/api/data` 三个接口都可用。
+
+### 其他命令
+
+```bash
+python scripts/install.py            # 安装为 ~/.workbuddy/skills/ 下的 Skill
+python scripts/run.py --no-prompts   # 剔除提示词摘要，适合对外分享
+python scripts/make_sample.py        # 用合成数据重新生成示例看板
+python -m unittest discover -s tests -v
+```
+
+非默认数据目录：加 `--home "D:/somewhere/.workbuddy"`，或设环境变量 `WORKBUDDY_HOME`。
+
+---
+
+## 为什么静态页面不能自己读数据
+
+这是浏览器沙箱的硬约束，不是设计偷懒：
+
+`file://` 打开的 HTML 里的 JS **不能**读 `~/.workbuddy/projects/**` 或 `workbuddy.db`。所以「把 token 记录写死进 HTML」和「打开就能看到最新记录」是互斥的——写死就是快照。
+
+想让它变新，必须有浏览器外的进程重新写一次。只有三条路：
+
+| 方案 | 谁触发重算 | 代价 |
+| --- | --- | --- |
+| A 一键快照 `open-snapshot.bat` | 你双击时 | 不双击就是旧数据 |
+| B 本地服务 `serve.py` | 每次打开页面自动检查 | 要有个常驻进程（或开机自启） |
+| C 定时任务 | 每天 09:00 | 不需要进程常驻，但当天中途的数据看不到、且每天往资料库塞新文件会堆积 |
+
+**本项目主推 A / B。** 定时任务只是 C，是给"不在电脑前、想在 WorkBuddy 资料库里留一份"的人用的可选项，不是查看看板的前提。Skill 不再默认要求创建它。
+
+> 顺带说清楚：WorkBuddy 的「Skill」不是浏览器插件，它只是让 Agent 能调用脚本；真正在外部打开的是生成的 HTML 或本地服务。资料库里那个页面链接是软件内点开的入口，但那也是快照。
 
 ---
 
@@ -108,17 +149,21 @@ python scripts/make_sample.py       # 用合成数据重新生成示例看板
 
 ---
 
-## 安装为 Skill 与定时自动更新
+## 安装为 Skill（可选）
 
-`python scripts/install.py` 会把仓库同步到 `~/.workbuddy/skills/workbuddy-token-dashboard/`。在 WorkBuddy 里启用后，可用「帮我看看 token 消耗」之类的话触发生成看板。
+`python scripts/install.py` 会把仓库同步到 `~/.workbuddy/skills/workbuddy-token-dashboard/`。在 WorkBuddy 里启用后，可以用「帮我看看 token 消耗」之类的话触发生成看板。
 
-首次安装时 Skill 会引导创建每天 09:00 的自动化任务，流程：
+**但看板本身不依赖 Skill，也不依赖自动任务**：双击 `open-snapshot.bat` 或 `start-live.bat` 就行。
 
-1. `python scripts/run.py --no-prompts`
-2. 生成 `output/token-dashboard-<时间戳>.html`
-3. 上传到 WorkBuddy 资料库，软件界面直接点开，不用翻会话记录
+如果你确实想要「每天自动留一份到资料库」，可以手动创建一个每天 09:00 的自动化，执行：
 
-**不逆向修改客户端菜单**——客户端一升级菜单就没了。定时任务 + 资料库是稳定方案。细节见 [`SKILL.md`](SKILL.md)。
+```
+python scripts/run.py --no-prompts
+```
+
+然后把新生成的 HTML 上传到资料库。注意资料库上传每次会新建条目，天天传会堆一坨快照文件，所以本项目默认**不创建**这个任务。
+
+不逆向修改客户端菜单——客户端一升级菜单就没了。细节见 [`SKILL.md`](SKILL.md)。
 
 ---
 
@@ -130,18 +175,20 @@ python scripts/make_sample.py       # 用合成数据重新生成示例看板
 ├── LICENSE                      MIT
 ├── config/
 │   └── pricing.json             厂商牌价 + WorkBuddy 套餐 + 来源
+├── open-snapshot.bat            一键：重算快照 + 浏览器打开
+├── start-live.bat               一键：启动本地实时服务 + 打开浏览器
 ├── scripts/
-│   ├── collect.py               只读采集 → output/data.json
-│   ├── render.py                注入数据 → 单文件 HTML
-│   ├── run.py                   一键刷新
+│   ├── collect.py               只读采集 → output/data.json（同时暴露 collect_data / source_signature）
+│   ├── render.py                注入数据 → 单文件 HTML（同时暴露 render_html）
+│   ├── serve.py                 本地 HTTP 服务，打开即最新、源数据变化自动重载
+│   ├── run.py                   一键刷新快照（--open 直接打开）
 │   ├── install.py               同步到用户级 Skill 目录
 │   └── make_sample.py           生成脱敏合成示例
 ├── assets/
 │   └── template.html            零依赖看板（CSS + 原生 JS + SVG 图表）
-├── examples/
-│   └── sample-dashboard.html    合成数据示例看板
-├── tests/
-│   └── test_collect.py
+├── config/pricing.json
+├── examples/sample-dashboard.html
+├── tests/test_collect.py
 └── output/                     （被忽略）本机真实数据
 ```
 

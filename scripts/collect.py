@@ -353,6 +353,46 @@ def build(pricing: dict, calls: list, bills: dict, db_sessions: dict, with_promp
     }
 
 
+def source_signature(home: Path) -> float:
+    """数据源最新修改时间。本地服务用它判断是否需要重新采集，避免每次请求都全量扫。"""
+    latest = 0.0
+    for name in ("workbuddy.db", "workbuddy.db-wal"):
+        p = home / name
+        if p.exists():
+            latest = max(latest, p.stat().st_mtime)
+    proj = home / "projects"
+    if proj.exists():
+        for p in proj.glob("**/*.jsonl"):
+            try:
+                latest = max(latest, p.stat().st_mtime)
+            except OSError:
+                pass
+    return latest
+
+
+def collect_data(home: Path, config_path: Path, with_prompts: bool = True, since_ts: int | None = None) -> dict:
+    """只读采集，直接返回数据字典（不写文件）。供 CLI 与本地服务共用。"""
+    global PRICING
+    if not home.exists():
+        raise FileNotFoundError(f"WorkBuddy 数据目录不存在: {home}")
+    pricing = json.loads(config_path.read_text(encoding="utf-8"))
+    PRICING = pricing
+    db_sessions, bills = load_db(home)
+    files = sorted((home / "projects").glob("**/*.jsonl"))
+    if not files:
+        raise FileNotFoundError(f"未找到会话日志: {home / 'projects'}")
+    all_calls, prompt_map = [], {}
+    for p in files:
+        sid, calls, ums = scan_jsonl(p, bills, with_prompts)
+        if since_ts:
+            calls = [c for c in calls if c["ts"] >= since_ts]
+        all_calls.extend(calls)
+        if ums:
+            prompt_map[sid] = sorted(ums)
+    all_calls.sort(key=lambda c: c["ts"])
+    return build(pricing, all_calls, bills, db_sessions, with_prompts, prompt_map)
+
+
 def main(argv=None):
     root = Path(__file__).resolve().parent.parent
     ap = argparse.ArgumentParser(description="采集 WorkBuddy 本地 token / 积分用量")
@@ -365,35 +405,15 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     home = Path(args.home)
-    if not home.exists():
-        print(f"[FATAL] WorkBuddy 数据目录不存在: {home}", file=sys.stderr)
-        return 2
-    with open(args.config, "r", encoding="utf-8") as f:
-        pricing = json.load(f)
-    global PRICING
-    PRICING = pricing
-
-    db_sessions, bills = load_db(home)
-    files = sorted((home / "projects").glob("**/*.jsonl"))
-    if not files:
-        print(f"[FATAL] 未找到会话日志: {home / 'projects'}", file=sys.stderr)
-        return 2
-
     since_ts = None
     if args.since:
         since_ts = int(datetime.strptime(args.since, "%Y-%m-%d").replace(tzinfo=CST).timestamp() * 1000)
+    try:
+        data = collect_data(home, Path(args.config), not args.no_prompts, since_ts)
+    except (FileNotFoundError, ValueError) as e:
+        print(f"[FATAL] {e}", file=sys.stderr)
+        return 2
 
-    all_calls, prompt_map = [], {}
-    for p in files:
-        sid, calls, ums = scan_jsonl(p, bills, not args.no_prompts)
-        if since_ts:
-            calls = [c for c in calls if c["ts"] >= since_ts]
-        all_calls.extend(calls)
-        if ums:
-            prompt_map[sid] = sorted(ums)
-    all_calls.sort(key=lambda c: c["ts"])
-
-    data = build(pricing, all_calls, bills, db_sessions, not args.no_prompts, prompt_map)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))

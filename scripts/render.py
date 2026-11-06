@@ -21,14 +21,20 @@ def safe_json(obj) -> str:
              .replace("\u2029", "\\u2029"))
 
 
-def render(data_path: Path, template_path: Path, out: Path | None = None) -> Path:
-    data = json.loads(data_path.read_text(encoding="utf-8"))
+def render_html(data: dict, template_path: Path) -> str:
+    """返回完整的单文件 HTML 字符串（不写文件）。"""
     tpl = template_path.read_text(encoding="utf-8")
     if PLACEHOLDER not in tpl:
         raise RuntimeError("模板缺少占位符 " + PLACEHOLDER)
     html = tpl.replace(PLACEHOLDER, safe_json(data))
     if PLACEHOLDER in html:
         raise RuntimeError("占位符替换失败")
+    return html
+
+
+def render(data_path: Path, template_path: Path, out: Path | None = None) -> Path:
+    data = json.loads(data_path.read_text(encoding="utf-8"))
+    html = render_html(data, template_path)
     if out is None:
         cst = timezone(timedelta(hours=8))
         stamp = datetime.now(cst).strftime("%Y%m%d-%H%M%S")

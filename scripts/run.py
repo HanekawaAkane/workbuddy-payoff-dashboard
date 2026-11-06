@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
+import webbrowser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -16,6 +17,7 @@ def main():
     ap.add_argument("--no-prompts", action="store_true", help="不写入提示词摘要，便于对外分享")
     ap.add_argument("--no-latest", action="store_true")
     ap.add_argument("--out", default="", help="指定 HTML 输出路径")
+    ap.add_argument("--open", action="store_true", help="生成后用默认浏览器打开（双击即看最新快照）")
     args = ap.parse_args()
 
     py = sys.executable
@@ -40,10 +42,14 @@ def main():
             return r.returncode
 
     outdir = ROOT / "output"
-    htmls = sorted(outdir.glob("token-dashboard-*.html"))
-    if htmls:
-        print(f"\n[DONE] 最新看板：{htmls[-1]}")
-        print("[NEXT] 若为定时任务，请把该文件上传到 WorkBuddy 资料库。")
+    target = Path(args.out) if args.out else (outdir / "token-dashboard-latest.html")
+    if target.exists():
+        print(f"\n[DONE] 最新看板：{target}")
+    if args.open and target.exists():
+        webbrowser.open(target.resolve().as_uri())
+        print("[OPEN] 已在默认浏览器打开。")
+    else:
+        print("[TIP] 想常驻实时刷新请用 python scripts/serve.py --open")
     return 0
 
 
