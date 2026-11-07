@@ -174,7 +174,8 @@ class TestLiveServer(unittest.TestCase):
                                                           "prompt_cache_miss_tokens": 110,
                                                           "credit": 0.1}}}) + "\n",
                 encoding="utf-8")
-            st = serve.State(home, ROOT / "config" / "pricing.json",
+            st = serve.State([f"testdev={home}"], [], "", False, False,
+                             ROOT / "config" / "pricing.json",
                              ROOT / "assets" / "template.html", False)
             st.rebuild(force=True)
             self.assertTrue(st.status()["ok"], st.status()["error"])
@@ -182,6 +183,87 @@ class TestLiveServer(unittest.TestCase):
             self.assertIn("/api/refresh", st.html)
             self.assertNotIn("__DASHBOARD_DATA__", st.html)
             self.assertEqual(st.status()["n_calls"], 1)
+            self.assertEqual(st.status()["devices"], ["testdev"])
+
+
+def _fake_home(td: str, name: str, n: int = 2, sid: str = "same-session"):
+    """造一个最小可用的假 WorkBuddy 目录，session_id 故意复用，检验设备前缀隔离。"""
+    home = Path(td) / name
+    (home / "projects").mkdir(parents=True)
+    lines = [json.dumps({"type": "message", "role": "user",
+                         "timestamp": 1793929999000,
+                         "content": [{"type": "input_text", "text": "帮我查一下用量"}]})]
+    for k in range(n):
+        lines.append(json.dumps({
+            "type": "message", "timestamp": 1793930000000 + k * 1000,
+            "providerData": {
+                "messageId": f"{name}-m{k}", "model": "glm-5.3-flash",
+                "requestModelName": "GLM-5.3-Flash", "conversationRequestId": f"{name}-req",
+                "rawUsage": {"prompt_tokens": 1110, "completion_tokens": 50,
+                             "prompt_cache_hit_tokens": 1000, "prompt_cache_miss_tokens": 110,
+                             "credit": 0.1}}}))
+    (home / "projects" / f"{sid}.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return home
+
+
+class TestMultiDevice(unittest.TestCase):
+    def test_merge_two_devices_keeps_sessions_separate(self):
+        with tempfile.TemporaryDirectory() as td:
+            a, b = _fake_home(td, "laptop", 2), _fake_home(td, "desktop", 3)
+            sources = [{"device": "laptop", "home": a, "bundle": None},
+                       {"device": "desktop", "home": b, "bundle": None}]
+            data = collect.collect_from_sources(sources, ROOT / "config" / "pricing.json", False)
+            self.assertEqual(data["meta"]["devices"], ["desktop", "laptop"])
+            self.assertEqual(data["meta"]["n_calls"], 5)
+            self.assertEqual(data["meta"]["n_sessions"], 2)   # session UUID 相同但设备前缀不同
+            devs = sorted(s[4] for s in data["sessions"])
+            self.assertEqual(devs, ["desktop", "laptop"])
+            self.assertEqual(len(data["calls"][0]), 12)         # call 行 schema 不变
+
+    def test_bundle_roundtrip_and_dedupe(self):
+        with tempfile.TemporaryDirectory() as td:
+            home = _fake_home(td, "laptop", 2)
+            bundle = collect.make_bundle(home, "laptop", False)
+            self.assertEqual(bundle["schema"], collect.BUNDLE_SCHEMA)
+            self.assertEqual(bundle["prompts"], {})
+            p = Path(td) / "laptop.json"
+            p.write_text(json.dumps(bundle, ensure_ascii=False), encoding="utf-8")
+            # 同一个包塞两次，去重后不能翻倍
+            sources = [{"device": None, "home": None, "bundle": p}] * 2
+            data = collect.collect_from_sources(sources, ROOT / "config" / "pricing.json", False)
+            self.assertEqual(data["meta"]["n_calls"], 2)
+            self.assertEqual(data["meta"]["devices"], ["laptop"])
+
+    def test_export_default_strips_prompts(self):
+        with tempfile.TemporaryDirectory() as td:
+            home = _fake_home(td, "laptop", 1)
+            plain = collect.make_bundle(home, "laptop", False)
+            self.assertNotIn("帮我查一下用量", json.dumps(plain, ensure_ascii=False))
+            self.assertEqual(plain["prompts"], {})
+            full = collect.make_bundle(home, "laptop", True)
+            self.assertIn("帮我查一下用量", json.dumps(full, ensure_ascii=False))
+
+    def test_resolve_sources_and_signature(self):
+        with tempfile.TemporaryDirectory() as td:
+            home = _fake_home(td, "laptop", 1)
+            sdir = Path(td) / "bundles"
+            sdir.mkdir()
+            p = sdir / "laptop.json"
+            p.write_text(json.dumps(collect.make_bundle(home, "laptop", False),
+                                   ensure_ascii=False), encoding="utf-8")
+            s = collect.resolve_sources([f"mydev={home}"], [str(sdir)], "", False)
+            self.assertEqual(len(s), 2)
+            self.assertEqual(s[0]["device"], "mydev")
+            self.assertEqual(s[1]["bundle"], p)
+            sig1 = collect.path_signature([sdir])
+            os.utime(p, (time.time() + 5, time.time() + 5))
+            self.assertGreater(collect.path_signature([sdir]), sig1)
+            # 只给 --sources 且没有显式 --home 时，默认不带本机，避免本机重复计数
+            only = collect.resolve_sources([], [str(sdir)], "", False, False)
+            self.assertEqual(len(only), 1)
+            self.assertTrue(all(x["bundle"] for x in only))
+            both = collect.resolve_sources([], [str(sdir)], "", False, True)
+            self.assertEqual(len(both), 2)
 
 
 if __name__ == "__main__":

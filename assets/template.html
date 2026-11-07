@@ -251,6 +251,9 @@ footer{border-top:1px solid var(--border);padding:22px 0 40px;color:var(--faint)
         <label class="ctl">套餐
           <select id="planSel"></select>
         </label>
+        <label class="ctl" id="deviceCtl" style="display:none">设备
+          <select id="deviceSel"></select>
+        </label>
         <label class="ctl" title="只用基础积分计算，排除限时加赠积分">
           <input type="checkbox" id="baseOnly"> 仅基础积分口径
         </label>
@@ -300,6 +303,7 @@ footer{border-top:1px solid var(--border);padding:22px 0 40px;color:var(--faint)
         <div id="sideStats"></div>
         <div style="margin-top:16px;font-size:12px;font-weight:700;color:var(--muted)">模型用量 TOP 8</div>
         <div id="modelBars"></div>
+        <div id="devStats"></div>
       </div>
     </div>
   </section>
@@ -374,6 +378,7 @@ footer{border-top:1px solid var(--border);padding:22px 0 40px;color:var(--faint)
         <span class="y">同用量 API 直购价</span> = Σ<sub>每条调用</sub> ( 未命中输入×P<sub>miss</sub> + 输出×P<sub>out</sub> + 缓存命中×P<sub>hit</sub> + 缓存写入×P<sub>write</sub> ) ÷ 1,000,000
       </div>
       <div class="note" id="creditNote"></div>
+      <div class="note" id="multiNote" style="display:none"></div>
       <details class="meth">
         <summary>为什么积分不按「模型倍率」折算？以及本看板多做了什么</summary>
         <ul>
@@ -446,8 +451,10 @@ footer{border-top:1px solid var(--border);padding:22px 0 40px;color:var(--faint)
           <div class="dd">启动只监听 127.0.0.1 的本地服务，浏览器打开 <span class="mono">http://127.0.0.1:8765/</span>。每次请求检查日志修改时间，源数据变了现场重算；页面每 20 秒自动探测并重载，右下角可手动「重新读取」。<span class="mono">/api/data</span> 直接给原始 JSON。</div></div></div>
         <div class="step"><span class="n">C</span><div><div class="tt">定时任务（可选）</div>
           <div class="dd">每天 09:00 跑一次 <span class="mono">run.py --no-prompts</span> 并上传资料库。适合「不在电脑前也想留一份」；缺点是当天中途的数据看不到，且天天上传会在资料库堆一坨快照。本项目默认不创建。</div></div></div>
-        <div class="step"><span class="n">!</span><div><div class="tt">为什么静态页面不能自己读数据</div>
-          <div class="dd">浏览器 <span class="mono">file://</span> 沙箱禁止页面 JS 读取 <span class="mono">~/.workbuddy/</span>。所以「写死」和「打开即最新」互斥——必须有浏览器外的进程重写一次。A/B/C 只是三种触发方式。</div></div></div>
+        <div class="step"><span class="n">D</span><div><div class="tt">多台设备怎么汇总</div>
+          <div class="dd">每台设备跑 <span class="mono">python scripts/export.py --device &lt;名字&gt; --out &lt;同步盘&gt;/&lt;名字&gt;.json</span>，把便携包丢进同一个同步盘目录；主设备用 <span class="mono">--sources &lt;同步盘目录&gt;</span> 启动，看板自动合并所有设备的记录并按设备拆分。便携包默认不含提示词。</div></div></div>
+        <div class="step"><span class="n">!</span><div><div class="tt">为什么静态页面不能自己读数据 / 为什么不用云端</div>
+          <div class="dd">浏览器 <span class="mono">file://</span> 沙箱禁止页面 JS 读取 <span class="mono">~/.workbuddy/</span>，所以「写死」和「打开即最新」互斥。WorkBuddy 小程序能看在线状态和对话，靠的是消息通道同步 + 路由回在线桌面端，<b>不同步逐请求四段 token</b>；官网可导出的账号级「积分消耗明细」也只有积分、没有 token 分解。所以跨设备只能靠本地导出汇总。</div></div></div>
       </div>
       <div class="card">
         <div class="card-head"><h3>命令速查</h3></div>
@@ -463,6 +470,17 @@ python scripts/collect.py --out output/data.json
 
 <span class="cm"># 对外发布用：剔除提示词摘要</span>
 python scripts/collect.py --no-prompts --out public/data.json
+
+<span class="cm"># 每台设备导出便携包到同步盘（默认不含提示词）</span>
+python scripts/export.py --device laptop --out D:/Sync/wb/laptop.json
+python scripts/export.py --device desktop --out D:/Sync/wb/desktop.json
+
+<span class="cm"># 主设备汇总多设备（--no-local 表示只看同步盘，不掺本机）</span>
+python scripts/serve.py --sources D:/Sync/wb --open
+python scripts/run.py  --sources D:/Sync/wb --open
+
+<span class="cm"># 或本机 + 同步盘一起看</span>
+python scripts/serve.py --sources D:/Sync/wb --open
 
 <span class="cm"># 安装为 WorkBuddy Skill（可选）</span>
 python scripts/install.py</pre>
@@ -516,14 +534,21 @@ function pct(n){ return (n*100).toFixed(1)+'%'; }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 const $ = s => document.querySelector(s);
 
-/* ---------- precompute per-call time parts ---------- */
-const cDay=new Array(D.calls.length), cHour=new Array(D.calls.length), cMonth=new Array(D.calls.length);
-for(let i=0;i<D.calls.length;i++){ const t=D.calls[i][C_TS]; cDay[i]=dayStr(t); cHour[i]=hourOf(t); cMonth[i]=monthStr(t); }
+/* ---------- precompute per-call time / device parts ---------- */
+const cDay=new Array(D.calls.length), cHour=new Array(D.calls.length),
+      cMonth=new Array(D.calls.length), cDev=new Array(D.calls.length);
+for(let i=0;i<D.calls.length;i++){
+  const c=D.calls[i], t=c[C_TS];
+  cDay[i]=dayStr(t); cHour[i]=hourOf(t); cMonth[i]=monthStr(t);
+  const s=D.sessions[D.requests[c[C_REQ]][R_SID]];
+  cDev[i]=(s&&s[4])||'本机';
+}
 const months=[...new Set(cMonth)].sort();
-const allMonths=months.slice();
+const DEVICES=[...new Set(cDev)].sort();
+const MULTI=DEVICES.length>1;
 
 const state={
-  month: months[months.length-1], day:null, hour:null, model:null,
+  month: months[months.length-1], day:null, hour:null, model:null, device:null,
   sessionIdx:null, requestIdx:null, metric:'tokens', gran:'day',
   plan:D.default_plan, baseOnly:false, search:'', sortKey:null, sortDir:-1,
   openCall:null
@@ -542,6 +567,7 @@ function filterCalls(o){
     if(!o.skipDay && state.day && cDay[i]!==state.day) continue;
     if(!o.skipHour && state.hour!==null && cHour[i]!==state.hour) continue;
     if(!o.skipModel && state.model!==null && D.calls[i][C_MODEL]!==state.model) continue;
+    if(!o.skipDevice && state.device && cDev[i]!==state.device) continue;
     r.push(i);
   }
   return r;
@@ -683,6 +709,25 @@ function renderSide(){
     <span class="nm" title="${esc(D.models[k][M_DISPLAY])}">${esc(D.models[k][M_DISPLAY])}</span>
     <span class="tr"><span class="fl" style="width:${Math.max(2,v/mx*100)}%;background:${modelColor(k)}"></span></span>
     <span class="vv num">${tok(v)}</span></div>`).join('') || '<div class="hint">无数据</div>';
+  if(MULTI){
+    const dm={}, dc={};
+    for(const i of filterCalls({skipDevice:true})){
+      const d=cDev[i], c=D.calls[i];
+      dm[d]=(dm[d]||0)+c[C_HIT]+c[C_MISS]+c[C_OUT]+c[C_WRITE];
+      dc[d]=(dc[d]||0)+c[C_CR];
+    }
+    const dv=Object.entries(dm).sort((x,y)=>y[1]-x[1]), dmx=dv.length?dv[0][1]:1;
+    $('#devStats').innerHTML=`<div style="margin-top:16px;font-size:12px;font-weight:700;color:var(--muted)">设备分布 · 当前范围 ${dv.length} / 共 ${DEVICES.length} 台</div>`+
+      dv.map(([d,v],j)=>`<div class="mbar" style="cursor:pointer" data-dev="${esc(d)}">
+        <span class="nm">${esc(d)}</span>
+        <span class="tr"><span class="fl" style="width:${Math.max(2,v/dmx*100)}%;background:${modelColor(j+2)}"></span></span>
+        <span class="vv num">${tok(v)}</span></div>`).join('')+
+      `<div class="hint" style="margin-top:6px">积分：${dv.map(([d])=>esc(d)+' '+cr(dc[d]||0)).join(' · ')}　· 点设备名可筛选</div>`;
+    $('#devStats').querySelectorAll('[data-dev]').forEach(el=>el.addEventListener('click',()=>{
+      state.device=(state.device===el.dataset.dev?null:el.dataset.dev);
+      const s=$('#deviceSel'); if(s) s.value=state.device||'';
+      renderAll(); }));
+  } else $('#devStats').innerHTML='';
 }
 function peakDay(ids){
   const d={}; for(const i of ids) d[cDay[i]]=(d[cDay[i]]||0)+D.calls[i][C_HIT]+D.calls[i][C_MISS]+D.calls[i][C_OUT]+D.calls[i][C_WRITE];
@@ -810,6 +855,7 @@ function renderChips(){
   if(state.day) c.push(`<span class="chip">日期 <b>${state.day}</b><button data-k="day">×</button></span>`);
   if(state.hour!==null) c.push(`<span class="chip">时段 <b>${String(state.hour).padStart(2,'0')}:00</b><button data-k="hour">×</button></span>`);
   if(state.model!==null) c.push(`<span class="chip">模型 <b>${esc(D.models[state.model][M_DISPLAY])}</b><button data-k="model">×</button></span>`);
+  if(state.device) c.push(`<span class="chip">设备 <b>${esc(state.device)}</b><button data-k="device">×</button></span>`);
   if(state.sessionIdx!==null) c.push(`<span class="chip">会话 <b>${esc(D.sessions[state.sessionIdx][1])}</b><button data-k="session">×</button></span>`);
   if(state.requestIdx!==null) c.push(`<span class="chip">请求 <b>${hhmm(D.requests[state.requestIdx][R_TS])}</b><button data-k="request">×</button></span>`);
   $('#chips').innerHTML=c.join('');
@@ -818,6 +864,7 @@ function renderChips(){
     if(k==='day'){state.day=null;state.sessionIdx=null;state.requestIdx=null;}
     if(k==='hour'){state.hour=null;state.sessionIdx=null;state.requestIdx=null;}
     if(k==='model')state.model=null;
+    if(k==='device'){state.device=null;const s=$('#deviceSel');if(s)s.value='';}
     if(k==='session'){state.sessionIdx=null;state.requestIdx=null;}
     if(k==='request')state.requestIdx=null;
     state.openCall=null; renderAll();
@@ -869,6 +916,12 @@ function topModel(arr){
   const m={}; for(const i of arr){ const k=D.calls[i][C_MODEL]; m[k]=(m[k]||0)+D.calls[i][C_HIT]+D.calls[i][C_MISS]+D.calls[i][C_OUT]; }
   return +Object.entries(m).sort((a,b)=>b[1]-a[1])[0][0];
 }
+function devLabel(r){
+  if(!r.ids||!r.ids.length) return '—';
+  const ds=[...new Set(r.ids.map(i=>cDev[i]))];
+  if(ds.length===1) return esc(ds[0]);
+  return `<span class="tag free">${ds.length} 台</span> <span style="color:var(--faint);font-size:10.5px">${esc(ds[0])} 等</span>`;
+}
 function drillClick(lv,k,arr){
   if(lv===0){ state.day=k; if(state.month!=='ALL'&&cMonth[arr[0]]!==state.month) state.month=cMonth[arr[0]]; }
   else if(lv===1){ state.sessionIdx=k; }
@@ -919,6 +972,7 @@ function columnsFor(lv){
     base.splice(2,0,{t:'类型',k:null,r:false,f:r=>`<span class="tag free">${esc(r.meta.kind||'')}</span>`});
     base.splice(3,0,{t:'峰谷',k:null,r:false,f:r=>`<span class="tag ${r.meta.peak?'no':'ok'}">${r.meta.peak?'峰时':'谷时'}</span>`});
   }
+  if(MULTI) base.splice(1,0,{t:'设备',k:null,r:false,f:r=>devLabel(r)});
   base.push({t:'主力模型',k:null,r:false,f:r=>{
     const m=r.meta.models; if(m==null) return '—';
     return `<span style="display:inline-flex;align-items:center;gap:6px"><i style="width:8px;height:8px;border-radius:2px;background:${modelColor(m)}"></i>${esc(D.models[m][M_DISPLAY])}</span>`;
@@ -973,6 +1027,12 @@ function renderPricing(){
     全部请求账单积分合计 <b>${cr(m.total_credit)}</b>，而逐调用日志里的 <span class="mono">rawUsage.credit</span> 累计仅 <b>${cr(m.total_log_credit)}</b>，
     差 <b>${pct(m.total_credit>0?(m.total_credit-m.total_log_credit)/m.total_credit:0)}</b>。
     差额来自账单的延迟结算 / 未落盘调用；看板把账单积分按调用权重分摊回每条记录，保证任何下钻层级的积分加总都等于官方总额。`;
+  if(MULTI){
+    $('#multiNote').style.display='';
+    $('#multiNote').innerHTML=`<b>多设备合并口径，别当账单用。</b>本看板汇总了 ${DEVICES.length} 台设备（${DEVICES.map(esc).join('、')}）的本地导出包。
+      积分是各设备本地 <span class="mono">credit_json</span> 之和，<b>不等于账号云端账单</b>：某台设备日志被清理、导出周期不全、或请求发生在网页/移动端时都会漏记。
+      要校总账，用官网「个人中心 → 套餐与用量 → 积分消耗明细」导出的数据对照；那个是账号级、天然跨设备，但只有积分、没有四段 token。`;
+  } else $('#multiNote').style.display='none';
 
   $('#planTable').innerHTML=`<thead><tr><th>套餐</th><th>计费</th><th class="r">月价</th><th class="r">实得积分</th><th class="r">¥/积分</th><th class="r">基础口径 ¥/积分</th></tr></thead><tbody>`+
     D.plans.map(x=>`<tr${x.id===state.plan?' style="background:var(--accent2)"':''}><td><b>${esc(x.name)}</b></td><td>${esc(x.billing)}</td>
@@ -1009,13 +1069,19 @@ function renderPricing(){
 function renderAll(){
   renderKpis(); renderHeat(); renderSide(); renderDistribution();
   renderChips(); renderCrumbs(); renderTable(); renderPricing();
-  $('#navMeta').textContent=`${nf(D.meta.n_calls)} 次调用 · ${D.meta.n_models} 个模型`;
-  $('#scopeTxt').textContent=scopeLabel();
+  $('#navMeta').textContent=`${nf(D.meta.n_calls)} 次调用 · ${D.meta.n_models} 个模型`+(MULTI?` · ${DEVICES.length} 台设备`:'');
+  $('#scopeTxt').textContent=scopeLabel()+(state.device?' · '+state.device:'')+(MULTI?`（${DEVICES.length} 台设备）`:'');
 }
 function initControls(){
   $('#planSel').innerHTML=D.plans.map(p=>`<option value="${p.id}">${esc(p.name)} · ${esc(p.billing)}（${p.monthly_price}元/${nf(p.credits)}积分）</option>`).join('');
   $('#planSel').value=state.plan;
   $('#planSel').addEventListener('change',e=>{state.plan=e.target.value;renderAll();});
+  if(MULTI){
+    $('#deviceCtl').style.display='';
+    $('#deviceSel').innerHTML='<option value="">全部设备</option>'+
+      DEVICES.map(d=>`<option value="${esc(d)}">${esc(d)}</option>`).join('');
+    $('#deviceSel').addEventListener('change',e=>{state.device=e.target.value||null;renderAll();});
+  }
   $('#baseOnly').addEventListener('change',e=>{state.baseOnly=e.target.checked;renderAll();});
   $('#prevM').addEventListener('click',()=>{const i=months.indexOf(state.month);if(i>0){state.month=months[i-1];resetDrill();renderAll();}});
   $('#nextM').addEventListener('click',()=>{const i=months.indexOf(state.month);if(i>=0&&i<months.length-1){state.month=months[i+1];resetDrill();renderAll();}});
@@ -1027,18 +1093,21 @@ function initControls(){
     state.sessionIdx=null; state.requestIdx=null; state.openCall=null;
     $('#granSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); renderAll(); }));
   $('#search').addEventListener('input',e=>{state.search=e.target.value;renderTable();});
-  $('#resetBtn').addEventListener('click',()=>{state.month=months[months.length-1];resetDrill();state.search='';$('#search').value='';renderAll();});
+  $('#resetBtn').addEventListener('click',()=>{state.month=months[months.length-1];resetDrill();state.search='';
+    $('#search').value='';const ds=$('#deviceSel');if(ds)ds.value='';renderAll();});
   $('#exportBtn').addEventListener('click',exportCsv);
   $('#builtAt').textContent=D.meta.generated_at.replace('T',' ').slice(0,19);
   $('#rangeTxt').textContent=dayStr(D.meta.range[0])+' ~ '+dayStr(D.meta.range[1]);
 }
-function resetDrill(){ state.day=null;state.hour=null;state.model=null;state.sessionIdx=null;state.requestIdx=null;state.openCall=null; }
+function resetDrill(){ state.day=null;state.hour=null;state.model=null;state.device=null;
+  state.sessionIdx=null;state.requestIdx=null;state.openCall=null;
+  const ds=$('#deviceSel'); if(ds) ds.value=''; }
 
 function exportCsv(){
-  const rows=[['日期','会话','请求ID','时间','模型','类型','缓存命中','未命中输入','输出','缓存写入','官方分摊积分','平台内人民币','API直购价人民币','峰谷']];
+  const rows=[['日期','设备','会话','请求ID','时间','模型','类型','缓存命中','未命中输入','输出','缓存写入','官方分摊积分','平台内人民币','API直购价人民币','峰谷']];
   for(const i of drillIndices()){
     const c=D.calls[i], r=D.requests[c[C_REQ]], s=D.sessions[r[R_SID]], m=D.models[c[C_MODEL]];
-    rows.push([cDay[i],s[1],r[R_ID],fullTime(c[C_TS]),m[M_ID],D.kind_labels[c[C_KIND]]||'其他',
+    rows.push([cDay[i],cDev[i],s[1],r[R_ID],fullTime(c[C_TS]),m[M_ID],D.kind_labels[c[C_KIND]]||'其他',
       c[C_HIT],c[C_MISS],c[C_OUT],c[C_WRITE],c[C_CR].toFixed(6),(c[C_CR]*pc()).toFixed(6),c[C_COST].toFixed(8),c[C_PEAK]?'峰时':'谷时']);
   }
   const csv='\uFEFF'+rows.map(r=>r.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(',')).join('\r\n');

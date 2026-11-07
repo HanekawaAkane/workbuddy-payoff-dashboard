@@ -32,6 +32,7 @@ CST = timezone(timedelta(hours=8))
 
 LIVE_BAR = """
 <style>
+body{padding-bottom:58px}
 #livebar{position:fixed;right:18px;bottom:18px;z-index:80;display:flex;align-items:center;gap:11px;
   background:#171a26;color:#fff;border-radius:30px;padding:9px 15px;font-size:11.5px;
   box-shadow:0 10px 30px rgba(0,0,0,.24);font-family:Inter,"Segoe UI","PingFang SC",sans-serif}
@@ -44,7 +45,7 @@ LIVE_BAR = """
 #livebar a:hover{color:#fff}
 #livebar.busy .dot{background:#fbbf24;box-shadow:0 0 0 3px rgba(251,191,36,.2)}
 </style>
-<div id="livebar"><span class="dot"></span><span>本地实时 · 数据截止 <b id="liveAt">__GEN__</b></span>
+<div id="livebar"><span class="dot"></span><span>本地实时 · __DEV__ · 数据截止 <b id="liveAt">__GEN__</b></span>
   <button id="liveRefresh">重新读取</button><a href="/api/data" target="_blank">原始 JSON ↗</a></div>
 <script>
 (function(){
@@ -68,9 +69,14 @@ LIVE_BAR = """
 
 
 class State:
-    def __init__(self, home: Path, config: Path, template: Path, with_prompts: bool):
-        self.home, self.config, self.template = home, config, template
+    def __init__(self, homes, sources_dirs, device, no_local, with_local,
+                 config: Path, template: Path, with_prompts: bool):
+        self.homes, self.sources_dirs = list(homes), list(sources_dirs)
+        self.device, self.no_local, self.with_local = device, no_local, with_local
+        self.config, self.template = config, template
         self.with_prompts = with_prompts
+        self.sources = collect.resolve_sources(self.homes, self.sources_dirs,
+                                               device, no_local, with_local)
         self.lock = threading.Lock()
         self.html = ""
         self.data = None
@@ -78,22 +84,46 @@ class State:
         self.generated = ""
         self.error = ""
 
+    def _watch_paths(self):
+        paths = []
+        skip_local = self.no_local or (self.sources_dirs and not self.homes and not self.with_local)
+        specs = self.homes or ([] if skip_local else
+                               [os.environ.get("WORKBUDDY_HOME") or str(Path.home() / ".workbuddy")])
+        for spec in specs:
+            paths.append(Path(spec.split("=", 1)[1] if "=" in spec else spec))
+        for d in self.sources_dirs:
+            paths.append(Path(d))
+        for s in self.sources:
+            if s.get("bundle"):
+                paths.append(s["bundle"])
+        return paths
+
     def signature(self) -> float:
-        """数据源 + 模板 + 价格表的综合修改时间；模板改了也要重新渲染。"""
-        sig = collect.source_signature(self.home)
+        """所有数据源 + 模板 + 价格表的综合修改时间。同步盘里新放一个包也会触发重算。"""
+        sig = collect.path_signature(self._watch_paths())
         for p in (self.template, self.config, ROOT / "scripts" / "serve.py"):
             if p.exists():
                 sig = max(sig, p.stat().st_mtime)
         return sig
 
     def rebuild(self, force: bool = False):
+        # 每次重算都重新发现便携包：同步盘里新落一个文件，下一秒就能出现在看板上
+        try:
+            self.sources = collect.resolve_sources(self.homes, self.sources_dirs,
+                                                   self.device, self.no_local, self.with_local)
+        except (FileNotFoundError, ValueError) as e:
+            self.error = str(e)
+            return
         sig = self.signature()
         with self.lock:
             if self.html and not force and sig <= self.sig:
                 return
             try:
-                data = collect.collect_data(self.home, self.config, self.with_prompts)
+                data = collect.collect_from_sources(self.sources, self.config, self.with_prompts)
+                dev = data["meta"].get("devices", [])
+                devtxt = f"{len(dev)} 台设备" if len(dev) > 1 else (dev[0] if dev else "本机")
                 bar = (LIVE_BAR.replace("__GEN__", data["meta"]["generated_at"][:19].replace("T", " "))
+                               .replace("__DEV__", devtxt)
                                .replace("__SIG__", json.dumps(sig)))
                 self.html = render_html(data, self.template).replace("</body>", bar + "</body>")
                 self.data = data
@@ -112,6 +142,7 @@ class State:
                 "n_calls": d["meta"]["n_calls"] if d else 0,
                 "total_credit": d["meta"]["total_credit"] if d else 0,
                 "total_api_cost": d["meta"]["total_api_cost"] if d else 0,
+                "devices": d["meta"].get("devices", []) if d else [],
             }
 
 
@@ -181,7 +212,13 @@ def main():
     ap = argparse.ArgumentParser(description="本地 token 看板服务（打开浏览器即最新数据）")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--host", default="127.0.0.1", help="只允许回环地址，改公网自负其责")
-    ap.add_argument("--home", default=os.environ.get("WORKBUDDY_HOME") or str(Path.home() / ".workbuddy"))
+    ap.add_argument("--home", action="append", default=[],
+                    help='设备数据目录，可重复；支持 "设备名=路径"')
+    ap.add_argument("--sources", action="append", default=[],
+                    help="便携包目录，可重复；读取其中所有 *.json（各设备 export.py 的输出）")
+    ap.add_argument("--device", default="", help="单 --home 时的设备名")
+    ap.add_argument("--no-local", action="store_true", help="不采集本机，只用 --sources")
+    ap.add_argument("--with-local", action="store_true", help="用了 --sources 时也把本机一起算进来")
     ap.add_argument("--config", default=str(ROOT / "config" / "pricing.json"))
     ap.add_argument("--template", default=str(ROOT / "assets" / "template.html"))
     ap.add_argument("--no-prompts", action="store_true", help="不在页面中嵌入提示词摘要")
@@ -189,7 +226,12 @@ def main():
     args = ap.parse_args()
 
     global STATE
-    STATE = State(Path(args.home), Path(args.config), Path(args.template), not args.no_prompts)
+    try:
+        STATE = State(args.home, args.sources, args.device, args.no_local, args.with_local,
+                      Path(args.config), Path(args.template), not args.no_prompts)
+    except (FileNotFoundError, ValueError) as e:
+        print(f"[FATAL] {e}", file=sys.stderr)
+        return 2
 
     print("[INIT] 首次采集…", flush=True)
     STATE.rebuild(force=True)
@@ -197,6 +239,8 @@ def main():
     if not st["ok"]:
         print(f"[FATAL] {st['error']}", file=sys.stderr)
         return 2
+    devices = STATE.data["meta"]["devices"] if STATE.data else []
+    print(f"[OK] 设备 {len(devices)} 台：{', '.join(devices)}")
     print(f"[OK] {st['n_calls']} 次调用 / 官方积分 {st['total_credit']:,.2f} / API 直购价 ¥{st['total_api_cost']:,.2f}")
 
     url = f"http://{args.host}:{args.port}/"

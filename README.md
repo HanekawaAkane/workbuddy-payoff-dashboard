@@ -87,6 +87,61 @@ python -m unittest discover -s tests -v
 
 ---
 
+## 多设备怎么汇总
+
+`~/.workbuddy/` 每台机器一份，网页没法隔空读另一台机器的磁盘。所以必须**把各设备的记录汇到一个点**。
+
+### 先说「在线手段」为什么不够
+
+WorkBuddy 小程序确实能看各客户端在线状态、也能访问各个对话，但这不等于有跨设备的用量明细通道：
+
+- 官方多端协同文档写得很明白：**桌面端是执行端**，小程序看的是桌面任务/对话，指令**路由回在线的桌面客户端**；「在线」是心跳状态，电脑关机断网就打不开。
+- 本机 `edge-sync-mapping-v4.db` 里只有 `session_id → conversation_id → msg_channel`（`convmsg:` 消息通道）和图片/附件的 COS、SMH 上传缓存；`edge-sync.log` 里全是 `conversation / session / artifact / message`，**没有 `usage / token / credit / billing`**。
+- 逐请求四段 token 只存在于本地 `projects/**/*.jsonl` 的 `providerData.rawUsage`，没有对应的云端同步表。
+
+真正账号级、天然跨设备的是官网「个人中心 → 套餐与用量 → 积分消耗明细」（可按今天 / 7 天 / 30 天筛选并导出）。但它**只有积分，没有四段 token 和模型分解**——能校总账，画不出堆叠图。所以别指望在线通道，用下面的本地汇集。
+
+### 做法：便携包 + 同步盘
+
+```
+每台设备                          同步盘                     主设备
+┌──────────────┐   export.py   ┌──────────────────┐  --sources  ┌──────────────┐
+│ ~/.workbuddy │ ────────────▶ │ laptop.json      │ ───────────▶│ 汇总看板     │
+│ (本机日志)   │               │ desktop.json     │             │ 可按设备筛选 │
+└──────────────┘               └──────────────────┘             └──────────────┘
+```
+
+**每台设备**（设备名必须互不相同）：
+
+```bash
+python scripts/export.py --device laptop --out "D:/Sync/wb-devices/laptop.json"
+```
+
+Windows 可直接双击 `export-device.bat`（用主机名当设备名，第一个参数是同步盘目录）。
+
+**主设备**：
+
+```bash
+python scripts/serve.py --sources "D:/Sync/wb-devices" --open   # 实时服务，推荐
+python scripts/run.py   --sources "D:/Sync/wb-devices" --open   # 一次性快照
+```
+
+Windows 双击 `start-multi.bat "D:\Sync\wb-devices"` 亦可。
+
+细节：
+
+- 便携包默认**不含提示词**，只含四段 token、模型、时间、官方积分和会话标题，几百 KB，适合丢同步盘。要含提示词加 `--with-prompts`，自己承担泄露风险。
+- `sid` 统一加 `<设备名>::` 前缀，跨设备 UUID 和 `credit_json` 账单 key 不会串；按调用唯一键去重，同一台设备增量导出多次也不会算重。
+- 给了 `--sources` 且没显式 `--home` 时**默认不带本机**，避免本机也导过包时重复计数。要把本机一起算进来加 `--with-local`。
+- 服务会监视同步盘目录，新落一个包、或某个包被更新，页面 20 秒内自动重载，不用手动操作。
+- 看板会多出：设备下拉筛选、01 节设备分布条、下钻表「设备」列、CSV 里的设备列、04 节的多设备口径说明。
+
+### 多设备积分的精度，别自欺
+
+合并后的积分是**各设备本地 `credit_json` 之和，不等于账号云端账单**。某台设备日志被清理、导出周期不全、或请求发生在网页/移动端时都会漏记。想校总账，拿官网导出的积分明细对照；那个数是账号级的，但换不来四段 token。
+
+---
+
 ## 看板里有什么
 
 **01 · 日历热力图** — 月视图 / 全部时间（近 13 周），可切月，点某天直接下钻。色阶可切 Token / 积分 / API 金额。
@@ -99,7 +154,7 @@ python -m unittest discover -s tests -v
 月整体 → 某天 → 某会话 → 某次请求 → 单次 API 调用（四段 token × 四段单价 → 小计）
 ```
 
-支持搜索、列排序、CSV 导出。单次调用详情会展开该模型的四段牌价与逐段金额。
+支持搜索、列排序、CSV 导出。单次调用详情会展开该模型的四段牌价与逐段金额。**多设备合并时**顶部出现设备下拉筛选，下钻表多一列「设备」（多台时显示数量），CSV 也带设备列。
 
 **04 · 积分口径与两种价格**
 
@@ -113,7 +168,7 @@ python -m unittest discover -s tests -v
 - 16 个模型的厂商牌价、来源链接与核验状态
 - 牌价覆盖率（不足 100% 会明确警告，未覆盖 token 不假装是 0 元）
 
-**05 · 自动更新** — 定时任务说明与命令。
+**05 · 打开方式** — 一键快照 / 本地实时服务 / 多设备汇总 / 可选定时任务的命令速查。
 
 ---
 
@@ -177,10 +232,13 @@ python scripts/run.py --no-prompts
 │   └── pricing.json             厂商牌价 + WorkBuddy 套餐 + 来源
 ├── open-snapshot.bat            一键：重算快照 + 浏览器打开
 ├── start-live.bat               一键：启动本地实时服务 + 打开浏览器
+├── export-device.bat            每台设备双击：导出便携包到同步盘
+├── start-multi.bat              主设备双击：汇总同步盘中的多设备数据
 ├── scripts/
-│   ├── collect.py               只读采集 → output/data.json（同时暴露 collect_data / source_signature）
+│   ├── collect.py               只读采集，支持多源 / 设备前缀 / 去重（暴露 collect_from_sources 等）
+│   ├── export.py                单设备导出便携包（默认剔除提示词）
 │   ├── render.py                注入数据 → 单文件 HTML（同时暴露 render_html）
-│   ├── serve.py                 本地 HTTP 服务，打开即最新、源数据变化自动重载
+│   ├── serve.py                 本地 HTTP 服务，打开即最新、源数据/同步盘变化自动重载
 │   ├── run.py                   一键刷新快照（--open 直接打开）
 │   ├── install.py               同步到用户级 Skill 目录
 │   └── make_sample.py           生成脱敏合成示例
@@ -200,7 +258,8 @@ python -m unittest discover -s tests -v
 
 ## 已知局限
 
-- 只覆盖本机残留的会话日志；被清理、未落盘、其他设备的数据不在内。
+- 单设备模式只覆盖本机残留的会话日志；被清理、未落盘的数据不在内。多设备模式靠各设备主动导出便携包，没导出的设备不会凭空出现。
+- 多设备合并的积分是各设备本地账单之和，不是账号云端账单；官网导出的积分明细可校总账但不含四段 token。
 - 模型 ID 是 WorkBuddy 内部标识，与厂商对外模型名可能不完全一致；匿名 / 别名模型按推定映射。
 - 赠送积分有效期、峰谷规则历史变更、限时免费活动等未逐条建模，金额是近似值。
 - 客户端数据结构是内部实现，版本升级后可能变化；采集脚本对字段做了兼容与去重，但不保证永远有效。

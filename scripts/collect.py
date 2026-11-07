@@ -154,6 +154,7 @@ def scan_jsonl(path: Path, bills: dict, with_prompts: bool):
             model = pd.get("model") or "unknown"
             reqid = norm_id(pd.get("conversationRequestId")) or norm_id(o.get("parentId")) or norm_id(o.get("id"))
             calls.append({
+                "uid": f"{sid}:{pd.get('messageId') or o.get('id')}",
                 "sid": sid, "reqid": reqid, "ts": ts, "model": model,
                 "display": pd.get("requestModelName") or model,
                 "hit": hit, "miss": miss, "out": out, "write": write,
@@ -226,7 +227,10 @@ def build(pricing: dict, calls: list, bills: dict, db_sessions: dict, with_promp
     session_rows = []
     for s in session_ids:
         d = db_sessions.get(s, {})
-        session_rows.append([s, d.get("title", "(子会话 / 未登记)"), d.get("cwd", ""), d.get("created_at", 0)])
+        # 没有 workbuddy.db 时（纯日志 / 精简导出包）从 sid 前缀还原设备名
+        dev = d.get("device") or (s.split("::", 1)[0] if "::" in s else "本机")
+        session_rows.append([s, d.get("title", "(子会话 / 未登记)"), d.get("cwd", ""),
+                             d.get("created_at", 0), dev])
 
     # 请求（turn）分组
     groups: dict[tuple[str, str], list] = {}
@@ -332,7 +336,7 @@ def build(pricing: dict, calls: list, bills: dict, db_sessions: dict, with_promp
         "meta": meta,
         "schema": {
             "models": "[id, display, vendor, verified, sourceLabel, note, offpeak[4]|null, peak[4]|null, timeOfUse]",
-            "sessions": "[sid, title, cwd, createdTs]",
+            "sessions": "[sid, title, cwd, createdTs, device]",
             "requests": "[sessionIdx, reqId, ts, cacheHit, inputMiss, output, cacheWrite, officialCredit, apiCost, nCalls, creditSrc(1=bill 0=log), prompt]",
             "calls": "[reqIdx, ts, modelIdx, cacheHit, inputMiss, output, cacheWrite, logCredit, apiCost, peakFlag, kind, allocatedCredit]",
             "credit_fit": "[modelIdx, n, creditPerM_hit, creditPerM_miss, creditPerM_output, r2, totalCredit]",
@@ -354,71 +358,226 @@ def build(pricing: dict, calls: list, bills: dict, db_sessions: dict, with_promp
 
 
 def source_signature(home: Path) -> float:
-    """数据源最新修改时间。本地服务用它判断是否需要重新采集，避免每次请求都全量扫。"""
+    """单个 WorkBuddy 目录的最新修改时间。"""
+    return path_signature([home])
+
+
+def path_signature(paths) -> float:
+    """任意数据源（home 目录 / 便携包目录 / 单文件）的最新修改时间。"""
     latest = 0.0
-    for name in ("workbuddy.db", "workbuddy.db-wal"):
-        p = home / name
-        if p.exists():
-            latest = max(latest, p.stat().st_mtime)
-    proj = home / "projects"
-    if proj.exists():
-        for p in proj.glob("**/*.jsonl"):
-            try:
+    for raw in paths:
+        p = Path(raw)
+        if p.is_file():
+            if p.exists():
                 latest = max(latest, p.stat().st_mtime)
+            continue
+        if not p.is_dir():
+            continue
+        for name in ("workbuddy.db", "workbuddy.db-wal"):
+            q = p / name
+            if q.exists():
+                latest = max(latest, q.stat().st_mtime)
+        proj = p / "projects"
+        if proj.exists():
+            for q in proj.glob("**/*.jsonl"):
+                try:
+                    latest = max(latest, q.stat().st_mtime)
+                except OSError:
+                    pass
+        for q in p.glob("*.json"):          # 便携包
+            try:
+                latest = max(latest, q.stat().st_mtime)
             except OSError:
                 pass
     return latest
 
 
-def collect_data(home: Path, config_path: Path, with_prompts: bool = True, since_ts: int | None = None) -> dict:
-    """只读采集，直接返回数据字典（不写文件）。供 CLI 与本地服务共用。"""
-    global PRICING
+BUNDLE_SCHEMA = "wbtd-bundle/1"
+
+
+def scan_home(home: Path, device: str, with_prompts: bool = True, since_ts: int | None = None):
+    """扫描一个设备的 WorkBuddy 目录，返回归一化的 (calls, bills, sessions, prompts)。
+
+    sid 统一加 "<device>::" 前缀，避免跨设备 UUID / 账单 key 串味。
+    """
     if not home.exists():
-        raise FileNotFoundError(f"WorkBuddy 数据目录不存在: {home}")
-    pricing = json.loads(config_path.read_text(encoding="utf-8"))
-    PRICING = pricing
-    db_sessions, bills = load_db(home)
+        raise FileNotFoundError(f"设备数据目录不存在: {home}")
+    raw_sessions, raw_bills = load_db(home)
+    sessions = {f"{device}::{k}": {**v, "device": device} for k, v in raw_sessions.items()}
+    bills = {f"{device}::{k}": v for k, v in raw_bills.items()}
     files = sorted((home / "projects").glob("**/*.jsonl"))
     if not files:
-        raise FileNotFoundError(f"未找到会话日志: {home / 'projects'}")
-    all_calls, prompt_map = [], {}
+        raise FileNotFoundError(f"设备 {device} 未找到会话日志: {home / 'projects'}")
+    calls, prompts = [], {}
     for p in files:
-        sid, calls, ums = scan_jsonl(p, bills, with_prompts)
+        sid, cs, ums = scan_jsonl(p, bills, with_prompts)
+        psid = f"{device}::{sid}"
         if since_ts:
-            calls = [c for c in calls if c["ts"] >= since_ts]
-        all_calls.extend(calls)
+            cs = [c for c in cs if c["ts"] >= since_ts]
+        for c in cs:
+            c["sid"] = psid
+            c["uid"] = f"{device}::{c.get('uid', psid)}"
+        calls.extend(cs)
         if ums:
-            prompt_map[sid] = sorted(ums)
+            prompts[psid] = sorted(ums)
+    return device, calls, bills, sessions, prompts
+
+
+def make_bundle(home: Path, device: str, with_prompts: bool = False) -> dict:
+    """给一台设备生成可跨机搬运的便携包（默认不含提示词）。"""
+    dev, calls, bills, sessions, prompts = scan_home(home, device, with_prompts)
+    return {
+        "schema": BUNDLE_SCHEMA, "device": dev,
+        "exported_at": datetime.now(CST).isoformat(timespec="seconds"),
+        "calls": calls, "bills": bills, "sessions": sessions,
+        "prompts": {k: [list(x) for x in v] for k, v in (prompts if with_prompts else {}).items()},
+    }
+
+
+def load_bundle(path: Path):
+    """还原便携包，结构与 scan_home 输出一致。"""
+    obj = json.loads(Path(path).read_text(encoding="utf-8"))
+    if obj.get("schema") != BUNDLE_SCHEMA:
+        raise ValueError(f"不是受支持的便携包格式: {path}")
+    dev = obj["device"]
+    calls = obj["calls"]
+    bills = obj["bills"]
+    sessions = obj["sessions"]
+    prompts = {k: [tuple(x) for x in v] for k, v in (obj.get("prompts") or {}).items()}
+    # 兼容早期未加前缀的包
+    for s in list(sessions):
+        if not str(s).startswith(f"{dev}::"):
+            sessions[f"{dev}::{s}"] = {**sessions.pop(s), "device": dev}
+    for s in list(bills):
+        if not str(s).startswith(f"{dev}::"):
+            bills[f"{dev}::{s}"] = bills.pop(s)
+    for c in calls:
+        if not str(c["sid"]).startswith(f"{dev}::"):
+            c["sid"] = f"{dev}::{c['sid']}"
+        if not str(c.get("uid", "")).startswith(f"{dev}::"):
+            c["uid"] = f"{dev}::{c.get('uid') or c['sid']}"
+    return dev, calls, bills, sessions, prompts
+
+
+def _call_uid(c: dict):
+    return c.get("uid") or (c["sid"], c["reqid"], c["ts"], c["model"],
+                            c["hit"], c["miss"], c["out"], c["write"])
+
+
+def collect_from_sources(sources: list, config_path: Path,
+                         with_prompts: bool = True, since_ts: int | None = None) -> dict:
+    """汇总多个设备。
+
+    sources: [{"device": 名称, "home": Path 或 None, "bundle": Path 或 None}, ...]
+    便携包的设备名以包内 device 字段为准。跨源按调用唯一键去重，允许同一设备增量导出多次。
+    """
+    global PRICING
+    pricing = json.loads(config_path.read_text(encoding="utf-8"))
+    PRICING = pricing
+    all_calls, all_bills, all_sessions, all_prompts = [], {}, {}, {}
+    devices, seen = [], set()
+    for s in sources:
+        if s.get("bundle"):
+            dev, calls, bills, sessions, prompts = load_bundle(s["bundle"])
+        else:
+            dev, calls, bills, sessions, prompts = scan_home(
+                s["home"], s["device"], with_prompts, since_ts)
+        devices.append(dev)
+        for c in calls:
+            if since_ts and c["ts"] < since_ts:
+                continue
+            u = _call_uid(c)
+            if u in seen:
+                continue
+            seen.add(u)
+            all_calls.append(c)
+        all_bills.update(bills)
+        all_sessions.update(sessions)
+        all_prompts.update(prompts)
+    if not all_calls:
+        raise FileNotFoundError("所有数据源都没有可用记录")
     all_calls.sort(key=lambda c: c["ts"])
-    return build(pricing, all_calls, bills, db_sessions, with_prompts, prompt_map)
+    data = build(pricing, all_calls, all_bills, all_sessions, with_prompts, all_prompts)
+    data["meta"]["devices"] = sorted(set(devices))
+    data["meta"]["multi_device"] = len(set(devices)) > 1
+    return data
+
+
+def collect_data(home: Path, config_path: Path, with_prompts: bool = True,
+                 since_ts: int | None = None, device: str = "本机") -> dict:
+    """单设备兼容入口。"""
+    return collect_from_sources([{"device": device, "home": Path(home), "bundle": None}],
+                               config_path, with_prompts, since_ts)
+
+
+def resolve_sources(homes, sources_dirs, device: str = "", no_local: bool = False,
+                    with_local: bool = False):
+    """把 CLI 参数解析成 sources 列表。home 支持 "设备名=路径"。
+
+    给了 --sources 又没显式 --home 时，默认不带本机：否则本机若也往同步盘
+    导过包，同一批调用会因设备前缀不同被算两遍。要一起看用 --with-local。
+    """
+    out = []
+    default_home = os.environ.get("WORKBUDDY_HOME") or str(Path.home() / ".workbuddy")
+    skip_local = no_local or (bool(sources_dirs) and not homes and not with_local)
+    specs = list(homes) if homes else ([] if skip_local else [default_home])
+    for spec in specs:
+        if "=" in spec and not spec[1:3] == ":\\":
+            name, p = spec.split("=", 1)
+        else:
+            p = spec
+            if device:
+                name = device
+            elif len(specs) == 1:
+                name = "本机"           # 单设备沿用旧口径，不暴露用户名
+            else:
+                name = Path(spec).name
+        if name in ("", ".workbuddy", "workbuddy"):
+            name = Path(spec).parent.name or "本机"
+        out.append({"device": name, "home": Path(p), "bundle": None})
+    for d in sources_dirs:
+        dp = Path(d)
+        if not dp.exists():
+            raise FileNotFoundError(f"便携包目录不存在: {dp}")
+        for b in sorted(dp.glob("*.json")):
+            out.append({"device": None, "home": None, "bundle": b})
+    if not out:
+        raise ValueError("没有指定任何数据源")
+    return out
 
 
 def main(argv=None):
     root = Path(__file__).resolve().parent.parent
-    ap = argparse.ArgumentParser(description="采集 WorkBuddy 本地 token / 积分用量")
-    ap.add_argument("--home", default=os.environ.get("WORKBUDDY_HOME") or str(Path.home() / ".workbuddy"),
-                    help="WorkBuddy 用户数据目录，默认 ~/.workbuddy")
+    ap = argparse.ArgumentParser(description="采集 WorkBuddy 本地 / 多设备 token 与积分用量")
+    ap.add_argument("--home", action="append", default=[],
+                    help='设备数据目录，可重复；支持 "设备名=路径"。默认当前设备 ~/.workbuddy')
+    ap.add_argument("--sources", action="append", default=[],
+                    help="便携包目录，可重复；读取其中所有 *.json（由 export.py 生成）")
+    ap.add_argument("--device", default="", help="单个 --home 时的设备名")
+    ap.add_argument("--no-local", action="store_true", help="不采集本机，只用 --sources / 显式 --home")
+    ap.add_argument("--with-local", action="store_true", help="用了 --sources 时也把本机一起算进来")
     ap.add_argument("--config", default=str(root / "config" / "pricing.json"))
     ap.add_argument("--out", default=str(root / "output" / "data.json"))
     ap.add_argument("--no-prompts", action="store_true", help="不写入用户提示词摘要（对外发布时用）")
     ap.add_argument("--since", default="", help="仅保留 YYYY-MM-DD 之后的调用")
     args = ap.parse_args(argv)
 
-    home = Path(args.home)
     since_ts = None
     if args.since:
         since_ts = int(datetime.strptime(args.since, "%Y-%m-%d").replace(tzinfo=CST).timestamp() * 1000)
     try:
-        data = collect_data(home, Path(args.config), not args.no_prompts, since_ts)
+        sources = resolve_sources(args.home, args.sources, args.device,
+                                  args.no_local, args.with_local)
+        data = collect_from_sources(sources, Path(args.config), not args.no_prompts, since_ts)
     except (FileNotFoundError, ValueError) as e:
         print(f"[FATAL] {e}", file=sys.stderr)
         return 2
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
-    out.write_text(payload, encoding="utf-8")
+    out.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     m = data["meta"]
+    print(f"[OK] 设备 {len(m['devices'])} 台：{', '.join(m['devices'])}")
     print(f"[OK] {m['n_calls']} 次 API 调用 / {m['n_requests']} 个请求 / {m['n_sessions']} 个会话 / {m['n_models']} 个模型")
     print(f"[OK] token {m['total_tokens']:,}（有牌价覆盖 {m['covered_tokens']:,}，{m['covered_tokens']/max(m['total_tokens'],1):.1%}）")
     print(f"[OK] 官方积分 {m['total_credit']:,.2f}（{m['bill_requests']}/{m['n_requests']} 个请求来自 credit_json 账单；逐调用日志累计 {m['total_log_credit']:,.2f}）")
