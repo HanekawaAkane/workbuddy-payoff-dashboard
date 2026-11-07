@@ -21,10 +21,10 @@ SKIP_FILES = {"peers.json", "peers.demo.json", "settings.local.json"}
 TOP_DIR = "workbuddy-token-exporter"
 
 
-def main():
+def main(argv=None):
     ap = argparse.ArgumentParser(description="生成另一台设备用的部署 ZIP")
     ap.add_argument("--out", default=str(ROOT / "output" / "workbuddy-token-exporter.zip"))
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
 

@@ -146,7 +146,13 @@ serve.py --host 0.0.0.0 --token X   ◀── GET /api/bundle?token=X ─── 
 每 60 秒拉一次 → output/bundles/<设备>.json → 看板自动重载
 ```
 
-**另一台设备**：把 `python scripts/build_deploy_kit.py` 生成的 `output/workbuddy-token-exporter.zip` 传过去，解压，双击 `deploy/START-NODE.bat`（可传 `密钥 端口 设备名` 三个参数）。它会：
+**另一台设备**：把 `python scripts/build_deploy_kit.py` 生成的 `output/workbuddy-token-exporter.zip` 传过去，解压，双击 `deploy/START-NODE.bat`（可传 `密钥 端口 设备名` 三个参数）。传输方式任选：U 盘、同步盘、邮件，或资料库里的**部署包下载页**。
+
+> **资料库不能收 `.zip`，别直接传 ZIP。** 上传工具会把它变成一个 `kind=web` 的空壳网页节点（`node has no drive file`），文件字节根本没存进去，在另一台设备也下不来。实测重试两次都一样。
+>
+> 绕开的办法：`python scripts/build_download_page.py` 生成一个**内嵌完整 ZIP 的下载页**（`output/deploy-kit-download.html`），把这个 `.html` 上传到资料库（HTML 通道可完整保存内容），在另一台设备打开页面点「下载部署包 ZIP」就在本地还原出真正的 `.zip`。页面带 SHA-256 校验，下载后自动比对。发布前重新跑这两条命令即可保证页面里的包是最新的。
+
+它会：
 
 - 自动找到 Python——WorkBuddy 桌面端自带一份，不用额外装环境；
 - 起一个只读服务，暴露 `/api/bundle`，只输出四段 token / 模型 / 时间 / 积分，**默认不含提示词**；
@@ -279,6 +285,7 @@ python scripts/run.py --no-prompts
 │   ├── export.py                单设备导出便携包（默认剔除提示词）
 │   ├── peers.py                 从在线对端 GET /api/bundle 并落盘（含离线跳过）
 │   ├── build_deploy_kit.py      打包另一台设备用的 ZIP（不含本机数据）
+│   ├── build_download_page.py   生成内嵌 ZIP 的资料库下载页（绕开 .zip 上传缺陷）
 │   ├── render.py                注入数据 → 单文件 HTML（同时暴露 render_html）
 │   ├── serve.py                 本地 HTTP 服务，打开即最新、源数据/同步盘变化自动重载
 │   ├── run.py                   一键刷新快照（--open 直接打开）

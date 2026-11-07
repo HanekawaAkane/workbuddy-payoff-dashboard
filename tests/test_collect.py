@@ -345,5 +345,39 @@ class TestPeerPull(unittest.TestCase):
             self.assertEqual((dev, len(calls)), ("统一节点", 5))
 
 
+class TestDownloadPage(unittest.TestCase):
+    """资料库不收 .zip，所以部署包必须能从下载页无损还原。"""
+
+    def test_embedded_zip_is_lossless(self):
+        import base64  # noqa: PLC0415
+        import hashlib  # noqa: PLC0415
+        import zipfile  # noqa: PLC0415
+        import build_download_page  # noqa: PLC0415
+        import build_deploy_kit  # noqa: PLC0415
+        import re  # noqa: PLC0415
+        import io  # noqa: PLC0415
+
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            zp = d / "kit.zip"
+            hp = d / "dl.html"
+            # 只改输出路径，不改仓库产物
+            self.assertEqual(build_deploy_kit.main(["--out", str(zp)]), 0)
+            self.assertEqual(build_download_page.main(["--zip", str(zp), "--out", str(hp)]), 0)
+            html = hp.read_text(encoding="utf-8")
+            b = re.search(r'var B64="([A-Za-z0-9+/=]+)"', html)
+            e = re.search(r'var EXPECT="([0-9a-f]{64})"', html)
+            self.assertIsNotNone(b)
+            self.assertIsNotNone(e)
+            raw = base64.b64decode(b.group(1))
+            self.assertEqual(raw, zp.read_bytes())
+            self.assertEqual(hashlib.sha256(raw).hexdigest(), e.group(1))
+            with zipfile.ZipFile(io.BytesIO(raw)) as z:
+                names = z.namelist()
+            self.assertIn("workbuddy-token-exporter/deploy/START-NODE.bat", names)
+            self.assertFalse(any(n.endswith("/peers.json") for n in names))
+            self.assertNotIn("__B64__", html)
+
+
 if __name__ == "__main__":
     unittest.main()

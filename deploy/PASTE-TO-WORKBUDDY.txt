@@ -9,7 +9,8 @@
 并把生成的文件上传到 WorkBuddy 资料库，然后回复一行：设备名、调用数、积分合计。
 
 如果不存在 scripts/export.py，说明这台设备还没部署本项目：
-1) 从资料库下载 workbuddy-token-exporter.zip 并解压；
+1) 打开资料库里的「WorkBuddy部署包-点此下载ZIP」页面，点「下载部署包 ZIP」
+   按钮拿到 workbuddy-token-exporter.zip 并解压（资料库不收 .zip，所以要走这个下载页）；
 2) 双击其中的 EXPORT.bat，把同步盘目录作为参数传进去；
 3) 汇报生成的文件路径，不要编造任何数字。
 

@@ -71,6 +71,7 @@ agent_created: true
 | 位置 | 命令 |
 | --- | --- |
 | 生成部署包 | `python scripts/build_deploy_kit.py` → `output/workbuddy-token-exporter.zip` |
+| 发布到资料库 | `python scripts/build_download_page.py` → `output/deploy-kit-download.html`，再用 `LibraryUpload` 上传这个 **HTML** |
 | 另一台设备 | 解压后双击 `deploy/START-NODE.bat <密钥> <端口> <设备名>`，起只读 `/api/bundle` 节点 |
 | 主设备 | 填 `config/peers.json`（从 `peers.example.json` 复制），跑 `python scripts/serve.py --peers config/peers.json --open`，或双击 `start-peers.bat` |
 
@@ -78,7 +79,9 @@ agent_created: true
 
 零网络配置的备选：官方多端协同支持「遥控电脑创建自动化任务」，可在那台设备的 WorkBuddy 会话里粘 `deploy/PASTE-TO-WORKBUDDY.txt` 让它自己导出并放进资料库。依赖官方远程任务能力，版本差异不保证，且本质仍是让对端执行脚本，不是 token 明细的云端同步。
 
-**不能替用户做的事**：本机 Agent 只能访问当前设备的文件与进程，无法远程在另一台机器上部署或起进程。能交付的是自包含 ZIP、双击入口和一条可粘贴的指令；传输（U 盘 / 同步盘 / 资料库 / 邮件）由用户完成。
+**不能替用户做的事**：本机 Agent 只能访问当前设备的文件与进程，无法远程在另一台机器上部署或起进程。能交付的是自包含 ZIP、双击入口和一条可粘贴的指令；传输（U 盘 / 同步盘 / 资料库下载页 / 邮件）由用户完成。
+
+**资料库的坑（已实测）**：`LibraryUpload` 对 `.zip` 会返回成功并给出链接，但生成的节点是 `kind=web`、`node has no drive file`，**文件字节没保存**，用户看到的是空壳网页且常被挂到某个 HTML 页面下当子节点。重试无效。对 `.html` 则能完整保存内容。所以要跨设备交付 ZIP，必须走 `build_download_page.py`（ZIP base64 内嵌 + SHA-256 校验 + 一键还原）再上传 HTML；不要把 ZIP 链接当成交付物，也不要在回复里声称「ZIP 已上传到资料库」。坏节点用 `rename-node` 标成 `[已废弃-空壳]`，资料库没有通用的节点删除 API。
 
 ## 定时自动更新（可选，默认不创建）
 
