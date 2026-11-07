@@ -379,5 +379,66 @@ class TestDownloadPage(unittest.TestCase):
             self.assertNotIn("__B64__", html)
 
 
+class TestPushDeployKit(unittest.TestCase):
+    """部署编排：命令引用的脚本必须真在包里，页面不能带密钥。"""
+
+    def test_keep_online_commands(self):
+        import keep_online  # noqa: PLC0415
+        node = keep_online.node_command("a" * 32, 8765, "laptop")
+        self.assertEqual(node[node.index("--host") + 1], "0.0.0.0")
+        self.assertEqual(node[node.index("--token") + 1], "a" * 32)
+        self.assertIn("--no-prompts", node)
+        self.assertNotIn("a" * 32, keep_online.printable(node))
+        main_cmd, note = keep_online.main_command()
+        self.assertEqual(main_cmd[main_cmd.index("--host") + 1], "127.0.0.1")
+        self.assertIn("未找到", note)  # 仓库里不应提交含密钥的 peers.json
+
+    def test_token_selection(self):
+        import push_deploy_kit as p  # noqa: PLC0415
+        import contextlib  # noqa: PLC0415
+        import io  # noqa: PLC0415
+        self.assertEqual(p.load_or_create_token(False, "x" * 32)[0], "x" * 32)
+        t, origin = p.load_or_create_token(True, "")
+        self.assertGreaterEqual(len(t), 32)
+        self.assertIn("新生成", origin)
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(p.main(["--token", "short"]), 2)
+
+    def test_audit_catches_missing_script_and_leaked_token(self):
+        import push_deploy_kit as p  # noqa: PLC0415
+        import zipfile  # noqa: PLC0415
+        import base64  # noqa: PLC0415
+
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            zp, hp = d / "kit.zip", d / "dl.html"
+            with zipfile.ZipFile(zp, "w") as z:
+                z.writestr("workbuddy-token-exporter/scripts/serve.py", "print(1)")
+                z.writestr("workbuddy-token-exporter/config/pricing.json", "{}")
+            cmd = r"python scripts\keep_online.py --mode node"
+            zp_bytes = zp.read_bytes()
+            hp.write_text(
+                '<script>var B64="' + base64.b64encode(zp_bytes).decode() + '";</script>',
+                encoding="utf-8",
+            )
+            old = (p.ZIP_PATH, p.PAGE_PATH)
+            p.ZIP_PATH, p.PAGE_PATH = zp, hp
+            try:
+                problems = p.audit_package("t" * 32, cmd, zp_bytes, hp.read_bytes())
+            finally:
+                p.ZIP_PATH, p.PAGE_PATH = old
+            text = " ".join(problems)
+            self.assertIn("缺少命令会用到的文件", text)
+            self.assertIn("包里不存在的文件：scripts\\keep_online.py", text)
+            # 页面里塞了密钥字节时必须被抓到
+            hp.write_bytes(hp.read_bytes() + ("t" * 32).encode())
+            p.ZIP_PATH, p.PAGE_PATH = zp, hp
+            try:
+                problems2 = p.audit_package("t" * 32, cmd, zp_bytes, hp.read_bytes())
+            finally:
+                p.ZIP_PATH, p.PAGE_PATH = old
+            self.assertTrue(any("出现共享密钥" in x for x in problems2))
+
+
 if __name__ == "__main__":
     unittest.main()

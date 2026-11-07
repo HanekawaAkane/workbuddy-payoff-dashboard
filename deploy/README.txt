@@ -25,6 +25,13 @@ WorkBuddy Token Dashboard - 另一台设备的部署包
    窗口里会打印出访问地址，例如 http://192.168.1.23:8765/api/bundle?token=...
    保持这个窗口开着（锁屏不影响，但电脑不能关机/断网）。
 
+   想让进程意外退出后自动重启，改用常驻版（Ctrl+C 才真正结束）：
+
+       python scripts\keep_online.py --mode node --token <共享密钥> --port 8765 --device %COMPUTERNAME%
+
+   主设备那边对应常驻命令：python scripts\keep_online.py --mode main
+   （只绑 127.0.0.1，按 config/peers.json 定时拉对端。）
+
 3. 在主设备编辑 config/peers.json（从 peers.example.json 复制），把上面
    那个地址和密钥填进去，然后启动主设备：
 

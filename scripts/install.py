@@ -8,8 +8,13 @@ import shutil
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SKIP_DIRS = {"output", ".git", "__pycache__", ".pytest_cache", ".venv"}
-SKIP_FILES = {".DS_Store", "*.pyc"}
+SKIP_DIRS = {"output", ".git", ".workbuddy", "__pycache__", ".pytest_cache", ".venv"}
+# 含共享密钥 / 本机私有数据的文件不进 Skill 目录
+SKIP_FILES = {
+    ".DS_Store", "*.pyc", "peers.json", "peers.demo.json",
+    "settings.local.json", ".env", "credentials.json",
+    "START-NODE-COMMAND.txt", "publish-manifest.json",
+}
 
 
 def main():
@@ -18,6 +23,16 @@ def main():
     args = ap.parse_args()
     dest = Path(args.home) / "skills" / "workbuddy-token-dashboard"
     dest.mkdir(parents=True, exist_ok=True)
+
+    # 清理早期版本同步进来的私有残留（copy2 不会自动删目标端多余文件）。
+    # 只动本 Skill 目录内这几个明确路径，不碰其它东西。
+    for rel in (".workbuddy", "config/peers.json", "config/peers.demo.json",
+                "output/START-NODE-COMMAND.txt", "output/publish-manifest.json"):
+        stale = dest / rel
+        if stale.is_dir():
+            shutil.rmtree(stale, ignore_errors=True)
+        elif stale.exists():
+            stale.unlink()
 
     copied = 0
     for src in ROOT.rglob("*"):

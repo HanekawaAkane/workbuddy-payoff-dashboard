@@ -146,7 +146,17 @@ serve.py --host 0.0.0.0 --token X   ◀── GET /api/bundle?token=X ─── 
 每 60 秒拉一次 → output/bundles/<设备>.json → 看板自动重载
 ```
 
-**另一台设备**：把 `python scripts/build_deploy_kit.py` 生成的 `output/workbuddy-token-exporter.zip` 传过去，解压，双击 `deploy/START-NODE.bat`（可传 `密钥 端口 设备名` 三个参数）。传输方式任选：U 盘、同步盘、邮件，或资料库里的**部署包下载页**。
+**本机一键准备（推荐）**：
+
+```bash
+python scripts/push_deploy_kit.py --peer-url http://192.168.1.23:8765 --peer-name 笔记本
+```
+
+一条命令跑完：取/生成共享密钥 → 写 `config/peers.json` → 打包 ZIP → 生成内嵌 ZIP 的下载页 → 安全自检 → 写 `output/START-NODE-COMMAND.txt`（对端要敲的命令，含密钥）和 `output/publish-manifest.json`（路径、SHA、密钥指纹，不含密钥）。不知道对端 IP 就先留空 `--peer-url`，之后填 `config/peers.json` 的 `peers[].url`。
+
+脚本默认复用已有密钥；想换新的加 `--rotate-token`；确需指定某个值用 `--token <值>`。**密钥不要在聊天、邮件、资料库里传**——它是给 `START-NODE-COMMAND.txt` 和 `config/peers.json` 用的，由你在另一台设备上手动敲进去。
+
+**另一台设备**：从资料库里的**部署包下载页**拿到 ZIP（或 U 盘 / 同步盘拷过去），解压，`cd` 到解压出来的 `workbuddy-token-exporter` 目录，执行 `START-NODE-COMMAND.txt` 里的命令。先跑一次性版 `deploy/START-NODE.bat` 确认能起来，再换常驻版。
 
 > **资料库不能收 `.zip`，别直接传 ZIP。** 上传工具会把它变成一个 `kind=web` 的空壳网页节点（`node has no drive file`），文件字节根本没存进去，在另一台设备也下不来。实测重试两次都一样。
 >
@@ -158,7 +168,18 @@ serve.py --host 0.0.0.0 --token X   ◀── GET /api/bundle?token=X ─── 
 - 起一个只读服务，暴露 `/api/bundle`，只输出四段 token / 模型 / 时间 / 积分，**默认不含提示词**；
 - 用 `--token` 挡住未授权拉取；非回环监听时程序还会强制 `--no-prompts`。
 
-**主设备**：从 `config/peers.example.json` 复制成 `config/peers.json`，填对端地址和同一个密钥，然后：
+**常驻版**（推荐，黑窗口意外关掉/进程崩了会自动重启，1s→30s 退避）：
+
+```bash
+# 另一台设备
+python scripts/keep_online.py --mode node --token <密钥> --port 8765 --device <设备名>
+# 本机汇总端（只绑 127.0.0.1）
+python scripts/keep_online.py --mode main
+```
+
+`--mode main` 会在 `config/peers.json` 存在时自动带上 `--peers`；文件不存在就退化成单设备本地看板。`Ctrl+C` 才真正结束守护。
+
+**主设备**：`push_deploy_kit.py` 已经写好 `config/peers.json`（含密钥），只差对端真实 IP。也可以从 `config/peers.example.json` 复制手动填，然后：
 
 ```bash
 python scripts/serve.py --peers config/peers.json --open
@@ -286,6 +307,8 @@ python scripts/run.py --no-prompts
 │   ├── peers.py                 从在线对端 GET /api/bundle 并落盘（含离线跳过）
 │   ├── build_deploy_kit.py      打包另一台设备用的 ZIP（不含本机数据）
 │   ├── build_download_page.py   生成内嵌 ZIP 的资料库下载页（绕开 .zip 上传缺陷）
+│   ├── push_deploy_kit.py       一键：密钥→配置→打包→下载页→安全自检→对端命令
+│   ├── keep_online.py           常驻守护，node/main 两种模式，退出自动重启
 │   ├── render.py                注入数据 → 单文件 HTML（同时暴露 render_html）
 │   ├── serve.py                 本地 HTTP 服务，打开即最新、源数据/同步盘变化自动重载
 │   ├── run.py                   一键刷新快照（--open 直接打开）

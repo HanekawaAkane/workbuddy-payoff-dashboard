@@ -14,10 +14,21 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SKIP_DIRS = {"output", ".git", "__pycache__", ".pytest_cache", ".venv", "venv", ".idea", ".vscode"}
-SKIP_SUFFIX = {".pyc", ".pyo", ".log"}
-# 含共享密钥 / 内网地址的文件绝不进部署包
-SKIP_FILES = {"peers.json", "peers.demo.json", "settings.local.json"}
+# 白名单：只打包这些目录，.workbuddy/（工作区记忆、自动化记录）、output/（本机真实用量）、
+# .git/ 等一律进不来。曾因纯黑名单漏掉 .workbuddy/memory 而把本机笔记打进过包。
+INCLUDE_DIRS = {"assets", "config", "deploy", "examples", "scripts", "tests"}
+INCLUDE_ROOT_FILES = {
+    "README.md", "SKILL.md", "LICENSE", ".gitignore",
+    "export-device.bat", "open-snapshot.bat", "start-live.bat",
+    "start-multi.bat", "start-peers.bat",
+}
+SKIP_DIRS = {"__pycache__", ".pytest_cache", ".venv", "venv", ".idea", ".vscode"}
+SKIP_SUFFIX = {".pyc", ".pyo", ".log", ".db", ".sqlite", ".sqlite3"}
+# 含共享密钥 / 本机产物的文件绝不进部署包
+SKIP_FILES = {
+    "peers.json", "peers.demo.json", "settings.local.json", "credentials.json",
+    ".env", "publish-manifest.json", "START-NODE-COMMAND.txt",
+}
 TOP_DIR = "workbuddy-token-exporter"
 
 
@@ -33,18 +44,29 @@ def main(argv=None):
         if not p.is_file():
             continue
         rel = p.relative_to(ROOT)
+        if len(rel.parts) == 1:
+            if p.name not in INCLUDE_ROOT_FILES:
+                continue
+        elif rel.parts[0] not in INCLUDE_DIRS:
+            continue
         if any(part in SKIP_DIRS for part in rel.parts):
             continue
         if p.suffix.lower() in SKIP_SUFFIX or p.name in SKIP_FILES:
             continue
         files.append((p, rel))
 
+    # 兜底断言：白名单失效时宁可拒绝打包，也不要把本机私有数据送出去
+    leaked = [str(rel) for _, rel in files
+              if ".workbuddy" in rel.parts or "output" in rel.parts or rel.name in SKIP_FILES]
+    if leaked:
+        raise RuntimeError(f"部署包拒绝打包本机私有文件：{leaked}")
+
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
         for p, rel in files:
             z.write(p, f"{TOP_DIR}/{rel.as_posix()}")
 
     print(f"[OK] {len(files)} 个文件 -> {out}  ({out.stat().st_size/1024:.0f} KB)")
-    print("[SAFE] 不含 output/ 下的任何本机真实数据、日志或提示词。")
+    print("[SAFE] 白名单打包：不含 .workbuddy/ 记忆、output/ 本机用量、日志或提示词。")
     print("[NEXT] 把这个 ZIP 传到另一台设备，解压后看 deploy/README.txt。")
     return 0
 

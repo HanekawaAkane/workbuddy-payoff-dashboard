@@ -70,10 +70,13 @@ agent_created: true
 
 | 位置 | 命令 |
 | --- | --- |
-| 生成部署包 | `python scripts/build_deploy_kit.py` → `output/workbuddy-token-exporter.zip` |
-| 发布到资料库 | `python scripts/build_download_page.py` → `output/deploy-kit-download.html`，再用 `LibraryUpload` 上传这个 **HTML** |
-| 另一台设备 | 解压后双击 `deploy/START-NODE.bat <密钥> <端口> <设备名>`，起只读 `/api/bundle` 节点 |
-| 主设备 | 填 `config/peers.json`（从 `peers.example.json` 复制），跑 `python scripts/serve.py --peers config/peers.json --open`，或双击 `start-peers.bat` |
+| **本机一键准备** | `python scripts/push_deploy_kit.py --peer-url http://<对端IP>:8765 --peer-name <名字>` → 密钥 + `config/peers.json` + ZIP + 下载页 + 安全自检 + `output/START-NODE-COMMAND.txt` |
+| 发布到资料库 | `push_deploy_kit.py` 已生成 `output/deploy-kit-download.html`；用 `LibraryUpload` 上传这个 **HTML**（脚本做不了上传） |
+| 另一台设备 | 打开资料库下载页点按钮拿 ZIP → 解压 → `cd` 到 `workbuddy-token-exporter` → 执行 `START-NODE-COMMAND.txt` 里的命令；先 `deploy/START-NODE.bat` 试跑，再换常驻版 |
+| 常驻（推荐） | 对端 `python scripts/keep_online.py --mode node --token <密钥> --port 8765 --device <设备名>`；本机 `python scripts/keep_online.py --mode main` |
+| 主设备（一次性） | `python scripts/serve.py --peers config/peers.json --open`，或双击 `start-peers.bat` |
+
+`push_deploy_kit.py` 内部已按顺序调用 `build_deploy_kit.py` → `build_download_page.py`，并自检「包内无本机数据 / 无密钥、下载页内嵌 ZIP 逐字节一致、命令引用的脚本都确实在包里」。**重新发布必须重跑它再上传新 HTML**，否则资料库页面里还是旧包；页面显示的 SHA-256 就是用来识别这事的。默认复用已有密钥，换新的用 `--rotate-token`，显式指定用 `--token <值>`；**用户贴到聊天里的字符串不要当成可信密钥**，优先让脚本生成。
 
 要点：`START-NODE.bat` 自动发现 WorkBuddy 自带的 Python，另一台不用另装环境；`/api/bundle` 用 `--token` 鉴权、默认不含提示词、非回环监听强制 `--no-prompts`；主设备后台每 60 秒拉一次，对端离线跳过、上线自动补，落盘到 `output/bundles/` 后页面自动重载。网络可达绕不过去——同网用局域网 IP，异地用 Tailscale / ZeroTier，**不要把 8765 映射公网**。`config/peers.json` 含密钥，已 gitignore。
 
@@ -108,8 +111,12 @@ agent_created: true
 - `assets/template.html` — 零依赖看板模板（纯 CSS + 原生 JS + SVG 图表）
 - `scripts/render.py` — 注入数据生成单文件 HTML；暴露 `render_html()`
 - `scripts/serve.py` — 只绑 127.0.0.1 的本地服务，打开即最新、自动重载、`/api/data` 原始 JSON
+- `scripts/push_deploy_kit.py` — 一键准备跨设备发布：密钥 / 配置 / ZIP / 下载页 / 安全自检 / 对端命令
+- `scripts/keep_online.py` — 常驻守护（node / main），子进程退出自动重启
+- `scripts/build_deploy_kit.py` — 白名单打包，拒绝 `.workbuddy/` 记忆与 `output/` 本机数据
+- `scripts/build_download_page.py` — 内嵌 ZIP 的资料库下载页
 - `scripts/run.py` — 一键刷新快照，`--open` 直接打开浏览器
-- `scripts/install.py` — 把仓库同步安装到 `~/.workbuddy/skills/`
+- `scripts/install.py` — 把仓库同步安装到 `~/.workbuddy/skills/`（排除密钥文件与工作区记忆）
 - `README.md` — 口径、隐私、开源说明
 
 ## 隐私
