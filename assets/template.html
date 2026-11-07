@@ -453,6 +453,8 @@ footer{border-top:1px solid var(--border);padding:22px 0 40px;color:var(--faint)
           <div class="dd">每天 09:00 跑一次 <span class="mono">run.py --no-prompts</span> 并上传资料库。适合「不在电脑前也想留一份」；缺点是当天中途的数据看不到，且天天上传会在资料库堆一坨快照。本项目默认不创建。</div></div></div>
         <div class="step"><span class="n">D</span><div><div class="tt">多台设备怎么汇总</div>
           <div class="dd">每台设备跑 <span class="mono">python scripts/export.py --device &lt;名字&gt; --out &lt;同步盘&gt;/&lt;名字&gt;.json</span>，把便携包丢进同一个同步盘目录；主设备用 <span class="mono">--sources &lt;同步盘目录&gt;</span> 启动，看板自动合并所有设备的记录并按设备拆分。便携包默认不含提示词。</div></div></div>
+        <div class="step"><span class="n">E</span><div><div class="tt">两台都在线时自动拉取</div>
+          <div class="dd">另一台设备解压部署包后双击 <span class="mono">deploy/START-NODE.bat &lt;密钥&gt; &lt;端口&gt; &lt;设备名&gt;</span>，起一个只读 <span class="mono">/api/bundle</span> 节点；主设备填 <span class="mono">config/peers.json</span> 后跑 <span class="mono">python scripts/serve.py --peers config/peers.json --open</span>。每 60 秒拉一次，对端离线跳过、上线自动补，页面自动重载。同网用局域网 IP，异地用 Tailscale，别映射公网。</div></div></div>
         <div class="step"><span class="n">!</span><div><div class="tt">为什么静态页面不能自己读数据 / 为什么不用云端</div>
           <div class="dd">浏览器 <span class="mono">file://</span> 沙箱禁止页面 JS 读取 <span class="mono">~/.workbuddy/</span>，所以「写死」和「打开即最新」互斥。WorkBuddy 小程序能看在线状态和对话，靠的是消息通道同步 + 路由回在线桌面端，<b>不同步逐请求四段 token</b>；官网可导出的账号级「积分消耗明细」也只有积分、没有 token 分解。所以跨设备只能靠本地导出汇总。</div></div></div>
       </div>
@@ -479,8 +481,12 @@ python scripts/export.py --device desktop --out D:/Sync/wb/desktop.json
 python scripts/serve.py --sources D:/Sync/wb --open
 python scripts/run.py  --sources D:/Sync/wb --open
 
-<span class="cm"># 或本机 + 同步盘一起看</span>
-python scripts/serve.py --sources D:/Sync/wb --open
+<span class="cm"># 打包部署到另一台设备（不含本机数据）</span>
+python scripts/build_deploy_kit.py
+
+<span class="cm"># 主设备自动拉取在线对端（config/peers.json 填地址与密钥）</span>
+python scripts/serve.py --peers config/peers.json --open
+python scripts/peers.py --config config/peers.json --out output/bundles
 
 <span class="cm"># 安装为 WorkBuddy Skill（可选）</span>
 python scripts/install.py</pre>

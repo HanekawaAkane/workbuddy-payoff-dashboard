@@ -16,12 +16,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import socket
 import sys
 import threading
+import time
 import webbrowser
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -147,6 +150,7 @@ class State:
 
 
 STATE: State | None = None
+CONFIG: dict = {"token": "", "bundle_device": socket.gethostname()}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -205,6 +209,20 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self._json(d)
             return
+        if path == "/api/bundle":
+            # 给别的设备拉取用：只输出聚合后的逐调用明细，默认不含提示词
+            if CONFIG["token"]:
+                supplied = parse_qs(urlparse(self.path).query).get("token", [""])[0]
+                if supplied != CONFIG["token"]:
+                    self._json({"error": "unauthorized"}, 401)
+                    return
+            STATE.rebuild()
+            try:
+                obj = collect.bundle_from_sources(STATE.sources, CONFIG["bundle_device"], False)
+                self._json(obj)
+            except Exception as e:  # noqa: BLE001
+                self._json({"error": f"{type(e).__name__}: {e}"}, 500)
+            return
         self._json({"error": "not found"}, 404)
 
 
@@ -223,12 +241,45 @@ def main():
     ap.add_argument("--template", default=str(ROOT / "assets" / "template.html"))
     ap.add_argument("--no-prompts", action="store_true", help="不在页面中嵌入提示词摘要")
     ap.add_argument("--open", action="store_true", help="启动后自动打开浏览器")
+    ap.add_argument("--token", default="", help="保护 /api/bundle 的共享密钥；对端 peers.json 里要填同一个")
+    ap.add_argument("--bundle-device", default=socket.gethostname(),
+                    help="/api/bundle 声称的设备名，默认主机名")
+    ap.add_argument("--peers", default="", help="对端清单 JSON（config/peers.json），启用后定时主动拉取")
+    ap.add_argument("--peer-out", default="", help="拉到的便携包存放目录，默认 output/bundles")
+    ap.add_argument("--poll-seconds", type=int, default=0, help="覆盖 peers.json 里的 poll_seconds")
+    ap.add_argument("--timeout", type=float, default=10.0, help="拉取单台对端的超时秒数")
     args = ap.parse_args()
 
-    global STATE
+    global STATE, CONFIG
+    CONFIG = {"token": args.token, "bundle_device": args.bundle_device}
+
+    sources_dirs = list(args.sources)
+    peer_cfg, peer_out = None, None
+    if args.peers:
+        p = Path(args.peers)
+        if not p.exists():
+            print(f"[FATAL] 找不到对端清单 {p}", file=sys.stderr)
+            return 2
+        peer_cfg = json.loads(p.read_text(encoding="utf-8"))
+        peer_out = Path(args.peer_out) if args.peer_out else ROOT / "output" / "bundles"
+        peer_out.mkdir(parents=True, exist_ok=True)
+        if str(peer_out) not in sources_dirs:
+            sources_dirs.append(str(peer_out))
+        # --peer-out 只放远端拉来的包，不会包含本机自己的导出，所以这里应当把本机算进来
+        if not args.no_local and not args.with_local:
+            args.with_local = True
+
+    # 非回环监听时强制不含提示词：否则整个局域网都能看到你的对话摘要
+    loopback = args.host in ("127.0.0.1", "localhost", "::1")
+    if not loopback and not args.no_prompts:
+        print("[WARN] 非回环监听，已强制 --no-prompts（不向网络暴露提示词摘要）。", flush=True)
+    if not loopback and not args.token:
+        print("[WARN] 非回环监听但未设置 --token，/api/bundle 任何人可拉取。建议加 --token。", flush=True)
+
     try:
-        STATE = State(args.home, args.sources, args.device, args.no_local, args.with_local,
-                      Path(args.config), Path(args.template), not args.no_prompts)
+        STATE = State(args.home, sources_dirs, args.device, args.no_local, args.with_local,
+                      Path(args.config), Path(args.template),
+                      not (args.no_prompts or not loopback))
     except (FileNotFoundError, ValueError) as e:
         print(f"[FATAL] {e}", file=sys.stderr)
         return 2
@@ -243,10 +294,27 @@ def main():
     print(f"[OK] 设备 {len(devices)} 台：{', '.join(devices)}")
     print(f"[OK] {st['n_calls']} 次调用 / 官方积分 {st['total_credit']:,.2f} / API 直购价 ¥{st['total_api_cost']:,.2f}")
 
+    if peer_cfg:
+        import peers  # noqa: E402
+        poll = args.poll_seconds or int(peer_cfg.get("poll_seconds", 60))
+        def _log(msg):
+            sys.stderr.write("[%s] [PEER] %s\n" % (datetime.now(CST).strftime("%H:%M:%S"), msg))
+            sys.stderr.flush()
+        def _loop():
+            # 先立刻拉一次，再按间隔轮询
+            while True:
+                try:
+                    peers.sync_peers(peer_cfg, peer_out, args.timeout, log=_log)
+                except Exception as e:  # noqa: BLE001
+                    _log(f"轮询异常：{type(e).__name__}: {e}")
+                time.sleep(max(10, poll))
+        threading.Thread(target=_loop, daemon=True, name="peer-poller").start()
+        print(f"[PEER] 每 {max(10, poll)} 秒拉取 {len(peer_cfg.get('peers', []))} 个对端 -> {peer_out}", flush=True)
+
     url = f"http://{args.host}:{args.port}/"
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"[READY] {url}")
-    print("[INFO] 源数据变化时页面会自动重载；Ctrl+C 退出。", flush=True)
+    print("[INFO] 源数据变化 / 对端上线时页面会自动重载；Ctrl+C 退出。", flush=True)
     if args.open:
         threading.Timer(0.4, lambda: webbrowser.open(url)).start()
     try:

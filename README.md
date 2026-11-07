@@ -136,6 +136,40 @@ Windows 双击 `start-multi.bat "D:\Sync\wb-devices"` 亦可。
 - 服务会监视同步盘目录，新落一个包、或某个包被更新，页面 20 秒内自动重载，不用手动操作。
 - 看板会多出：设备下拉筛选、01 节设备分布条、下钻表「设备」列、CSV 里的设备列、04 节的多设备口径说明。
 
+### 两台都在线：主动自动拉取（推荐）
+
+同步盘是「被动落盘」。想要**只要两台在线就自动把对端明细拿过来**，用设备间直连拉取——不依赖 WorkBuddy 私有 API，也不依赖任何云盘。
+
+```
+另一台设备（节点）                          主设备
+serve.py --host 0.0.0.0 --token X   ◀── GET /api/bundle?token=X ───  serve.py --peers config/peers.json
+每 60 秒拉一次 → output/bundles/<设备>.json → 看板自动重载
+```
+
+**另一台设备**：把 `python scripts/build_deploy_kit.py` 生成的 `output/workbuddy-token-exporter.zip` 传过去，解压，双击 `deploy/START-NODE.bat`（可传 `密钥 端口 设备名` 三个参数）。它会：
+
+- 自动找到 Python——WorkBuddy 桌面端自带一份，不用额外装环境；
+- 起一个只读服务，暴露 `/api/bundle`，只输出四段 token / 模型 / 时间 / 积分，**默认不含提示词**；
+- 用 `--token` 挡住未授权拉取；非回环监听时程序还会强制 `--no-prompts`。
+
+**主设备**：从 `config/peers.example.json` 复制成 `config/peers.json`，填对端地址和同一个密钥，然后：
+
+```bash
+python scripts/serve.py --peers config/peers.json --open
+```
+
+Windows 双击 `start-peers.bat` 亦可。主设备后台线程每 60 秒拉一次：对端离线就跳过、上线后自动补上；拉到的包写进 `output/bundles/`，而服务本来就在监视这个目录，页面 20 秒内自动重载。整个过程不需要人工触发。
+
+网络可达这一步绕不过去，三选一：同一局域网填局域网 IP；异地用 Tailscale / ZeroTier 虚拟 IP；**别把 8765 直接映射到公网**。`config/peers.json` 含密钥，已在 `.gitignore` 里。
+
+独立跑一次、不起服务：`python scripts/peers.py --config config/peers.json --out output/bundles`。
+
+### 零网络配置的备选：借官方多端协同
+
+官方多端协同文档写了「可以遥控电脑创建自动化任务」，小程序选中目标电脑就能让那台桌面端执行任务、操作本地文件。所以也可以在那台设备的 WorkBuddy 里粘 `deploy/PASTE-TO-WORKBUDDY.txt` 里的那句话，让它自己跑导出脚本并把结果放进同步盘或资料库。
+
+这条不用配网络，但依赖官方远程任务能力，版本差异不保证；而且它同步的是消息/产物通道，**不是**逐请求 token 明细的自动同步——本质还是让对端执行脚本。能直连就直连。
+
 ### 多设备积分的精度，别自欺
 
 合并后的积分是**各设备本地 `credit_json` 之和，不等于账号云端账单**。某台设备日志被清理、导出周期不全、或请求发生在网页/移动端时都会漏记。想校总账，拿官网导出的积分明细对照；那个数是账号级的，但换不来四段 token。
@@ -168,7 +202,7 @@ Windows 双击 `start-multi.bat "D:\Sync\wb-devices"` 亦可。
 - 16 个模型的厂商牌价、来源链接与核验状态
 - 牌价覆盖率（不足 100% 会明确警告，未覆盖 token 不假装是 0 元）
 
-**05 · 打开方式** — 一键快照 / 本地实时服务 / 多设备汇总 / 可选定时任务的命令速查。
+**05 · 打开方式** — 一键快照 / 本地实时服务 / 多设备自动拉取 / 可选定时任务的命令速查。
 
 ---
 
@@ -234,9 +268,17 @@ python scripts/run.py --no-prompts
 ├── start-live.bat               一键：启动本地实时服务 + 打开浏览器
 ├── export-device.bat            每台设备双击：导出便携包到同步盘
 ├── start-multi.bat              主设备双击：汇总同步盘中的多设备数据
+├── start-peers.bat              主设备双击：自动拉取在线对端（推荐）
+├── deploy/                      另一台设备用的部署说明与双击入口
+│   ├── START-NODE.bat           启动只读节点服务（自动找 WorkBuddy 自带 Python）
+│   ├── EXPORT.bat               一次性导出（不需要常驻服务）
+│   ├── README.txt / PASTE-TO-WORKBUDDY.txt
+├── config/peers.example.json    对端清单模板（填好另存 peers.json，含密钥不入库）
 ├── scripts/
 │   ├── collect.py               只读采集，支持多源 / 设备前缀 / 去重（暴露 collect_from_sources 等）
 │   ├── export.py                单设备导出便携包（默认剔除提示词）
+│   ├── peers.py                 从在线对端 GET /api/bundle 并落盘（含离线跳过）
+│   ├── build_deploy_kit.py      打包另一台设备用的 ZIP（不含本机数据）
 │   ├── render.py                注入数据 → 单文件 HTML（同时暴露 render_html）
 │   ├── serve.py                 本地 HTTP 服务，打开即最新、源数据/同步盘变化自动重载
 │   ├── run.py                   一键刷新快照（--open 直接打开）

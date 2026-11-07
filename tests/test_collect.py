@@ -266,5 +266,84 @@ class TestMultiDevice(unittest.TestCase):
             self.assertEqual(len(both), 2)
 
 
+class TestPeerPull(unittest.TestCase):
+    """用临时 HTTP 服务模拟「另一台在线设备」。"""
+
+    @staticmethod
+    def _serve(bundle, token):
+        import http.server
+        import threading
+        payload = json.dumps(bundle, ensure_ascii=False).encode("utf-8")
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                from urllib.parse import parse_qs, urlparse
+                u = urlparse(self.path)
+                if u.path != "/api/bundle" or parse_qs(u.query).get("token", [""])[0] != token:
+                    self.send_response(401)
+                    self.end_headers()
+                    self.wfile.write(b'{"error":"unauthorized"}')
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+        t = threading.Thread(target=srv.serve_forever, daemon=True)
+        t.start()
+        return srv, f"http://127.0.0.1:{srv.server_address[1]}"
+
+    def test_fetch_and_skip_offline_peer(self):
+        import peers  # noqa: PLC0415
+        with tempfile.TemporaryDirectory() as td:
+            home = _fake_home(td, "laptop", 2)
+            bundle = collect.make_bundle(home, "远端A", False)
+            srv, base = self._serve(bundle, "sekret")
+            try:
+                got = peers.fetch_bundle(base, "sekret", timeout=5)
+                self.assertEqual(got["device"], "远端A")
+                self.assertEqual(len(got["calls"]), 2)
+                with self.assertRaises(Exception):
+                    peers.fetch_bundle(base, "wrong", timeout=5)   # 401
+
+                cfg = {"peers": [
+                    {"name": "在线", "url": base, "token": "sekret", "enabled": True},
+                    {"name": "离线", "url": "http://127.0.0.1:1", "enabled": True},
+                    {"name": "停用", "url": base, "enabled": False},
+                ]}
+                logs = []
+                out = Path(td) / "incoming"
+                written = peers.sync_peers(cfg, out, timeout=5, log=logs.append)
+                self.assertEqual(len(written), 1)
+                self.assertEqual(written[0].name, "远端A.json")
+                self.assertTrue(any("SKIP" in x and "离线" in x for x in logs))
+            finally:
+                srv.shutdown()
+                srv.server_close()
+
+    def test_bundle_from_sources_reprefixes_device(self):
+        with tempfile.TemporaryDirectory() as td:
+            a = _fake_home(td, "a", 2)
+            b = _fake_home(td, "b", 3)
+            srcs = [{"device": "a", "home": a, "bundle": None},
+                    {"device": "b", "home": b, "bundle": None}]
+            out = collect.bundle_from_sources(srcs, "统一节点", False)
+            self.assertEqual(out["device"], "统一节点")
+            self.assertEqual(len(out["calls"]), 5)
+            self.assertTrue(all(c["sid"].startswith("统一节点::") for c in out["calls"]))
+            self.assertTrue(all(c["uid"].startswith("统一节点::") for c in out["calls"]))
+            self.assertEqual(out["prompts"], {})
+            # 拉回来的包能直接进汇总
+            p = Path(td) / "node.json"
+            p.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
+            dev, calls, bills, sessions, prompts = collect.load_bundle(p)
+            self.assertEqual((dev, len(calls)), ("统一节点", 5))
+
+
 if __name__ == "__main__":
     unittest.main()

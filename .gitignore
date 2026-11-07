@@ -2,6 +2,10 @@
 output/
 !output/.gitkeep
 
+# 对端清单含共享密钥与内网地址，不入库
+config/peers.json
+config/peers.demo.json
+
 # Python
 __pycache__/
 *.py[cod]

@@ -64,6 +64,22 @@ agent_created: true
 
 **必须如实说明**：合并积分是各设备本地 `credit_json` 之和，不等于账号云端账单，日志清理 / 导出周期不全 / 网页端请求都会漏记。
 
+### 两台都在线时要「自动拉取」
+
+同步盘是被动落盘。用户明确要求「在线时自动获取对端明细」时，用**设备间直连拉取**，不要赌 WorkBuddy 私有 API：
+
+| 位置 | 命令 |
+| --- | --- |
+| 生成部署包 | `python scripts/build_deploy_kit.py` → `output/workbuddy-token-exporter.zip` |
+| 另一台设备 | 解压后双击 `deploy/START-NODE.bat <密钥> <端口> <设备名>`，起只读 `/api/bundle` 节点 |
+| 主设备 | 填 `config/peers.json`（从 `peers.example.json` 复制），跑 `python scripts/serve.py --peers config/peers.json --open`，或双击 `start-peers.bat` |
+
+要点：`START-NODE.bat` 自动发现 WorkBuddy 自带的 Python，另一台不用另装环境；`/api/bundle` 用 `--token` 鉴权、默认不含提示词、非回环监听强制 `--no-prompts`；主设备后台每 60 秒拉一次，对端离线跳过、上线自动补，落盘到 `output/bundles/` 后页面自动重载。网络可达绕不过去——同网用局域网 IP，异地用 Tailscale / ZeroTier，**不要把 8765 映射公网**。`config/peers.json` 含密钥，已 gitignore。
+
+零网络配置的备选：官方多端协同支持「遥控电脑创建自动化任务」，可在那台设备的 WorkBuddy 会话里粘 `deploy/PASTE-TO-WORKBUDDY.txt` 让它自己导出并放进资料库。依赖官方远程任务能力，版本差异不保证，且本质仍是让对端执行脚本，不是 token 明细的云端同步。
+
+**不能替用户做的事**：本机 Agent 只能访问当前设备的文件与进程，无法远程在另一台机器上部署或起进程。能交付的是自包含 ZIP、双击入口和一条可粘贴的指令；传输（U 盘 / 同步盘 / 资料库 / 邮件）由用户完成。
+
 ## 定时自动更新（可选，默认不创建）
 
 只有用户**明确要求**「每天自动留一份 / 不在电脑前也想看」时才创建。先检查是否已有同名自动化，已存在就别重复创建。

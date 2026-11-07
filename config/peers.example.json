@@ -1,0 +1,23 @@
+{
+  "_readme": [
+    "复制到 config/peers.json 后填写。polling 只拉取 enabled=true 的对端。",
+    "url 指向对端 serve.py 的地址；两台都在同一局域网时填局域网 IP，异地用 Tailscale / ZeroTier 虚拟 IP。",
+    "token 必须与对端 serve.py --token 的值一致。不要把这个服务直接暴露到公网。",
+    "对端设备名由它自己的 --bundle-device（默认主机名）决定，写进 bundles/ 的文件名用它。"
+  ],
+  "poll_seconds": 60,
+  "token": "change-me-to-a-long-random-string",
+  "peers": [
+    {
+      "name": "笔记本",
+      "url": "http://192.168.1.23:8765",
+      "enabled": true
+    },
+    {
+      "name": "公司台式机",
+      "url": "http://100.64.0.7:8765",
+      "token": "per-peer-token-if-different",
+      "enabled": false
+    }
+  ]
+}

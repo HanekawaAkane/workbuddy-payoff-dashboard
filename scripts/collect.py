@@ -434,6 +434,42 @@ def make_bundle(home: Path, device: str, with_prompts: bool = False) -> dict:
     }
 
 
+def bundle_from_sources(sources: list, device: str, with_prompts: bool = False) -> dict:
+    """把一个节点（可能含多个源）导出成**单一设备名**的便携包，供别的节点拉取。
+
+    所有 sid / uid / 账单 key 统一重写为 "<device>::"，避免对端拿到后设备名混乱。
+    """
+    out = {"schema": BUNDLE_SCHEMA, "device": device,
+           "exported_at": datetime.now(CST).isoformat(timespec="seconds"),
+           "calls": [], "bills": {}, "sessions": {}, "prompts": {}}
+    seen = set()
+    for s in sources:
+        if s.get("bundle"):
+            _, calls, bills, sessions, prompts = load_bundle(s["bundle"])
+        else:
+            _, calls, bills, sessions, prompts = scan_home(s["home"], s["device"], with_prompts)
+        for raw in calls:
+            u = _call_uid(raw)
+            if u in seen:
+                continue
+            seen.add(u)
+            c = dict(raw)
+            stem = str(c["sid"]).split("::", 1)[-1]
+            uid = str(c.get("uid", stem)).split("::", 1)[-1]
+            c["sid"] = f"{device}::{stem}"
+            c["uid"] = f"{device}::{uid}"
+            out["calls"].append(c)
+        for k, v in bills.items():
+            out["bills"][f"{device}::{str(k).split('::', 1)[-1]}"] = v
+        for k, v in sessions.items():
+            out["sessions"][f"{device}::{str(k).split('::', 1)[-1]}"] = {**v, "device": device}
+        if with_prompts:
+            for k, v in prompts.items():
+                out["prompts"][f"{device}::{str(k).split('::', 1)[-1]}"] = [list(x) for x in v]
+    out["calls"].sort(key=lambda c: c["ts"])
+    return out
+
+
 def load_bundle(path: Path):
     """还原便携包，结构与 scan_home 输出一致。"""
     obj = json.loads(Path(path).read_text(encoding="utf-8"))
