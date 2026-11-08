@@ -36,17 +36,21 @@ def node_command(token: str, port: int, device: str) -> list[str]:
 
 
 def main_command(port: int = 8765, host: str = "127.0.0.1") -> tuple[list[str], str]:
-    """汇总端只绑回环地址。peers.json 存在才启用主动拉取。"""
+    """汇总端只绑回环地址。配置存在才启用直连拉取 / 资料库同步。"""
     cmd = [
         sys.executable, str(ROOT / "scripts" / "serve.py"),
         "--host", host, "--port", str(port), "--no-prompts",
     ]
+    notes = []
     peers = ROOT / "config" / "peers.json"
-    note = "未找到 config/peers.json，退化为单设备本地看板"
     if peers.exists():
         cmd += ["--peers", str(peers)]
-        note = f"启用主动拉取：{peers}"
-    return cmd, note
+        notes.append(f"直连拉取：{peers.name}")
+    lib = ROOT / "config" / "library-sync.json"
+    if lib.exists():
+        cmd += ["--library-sync", str(lib)]
+        notes.append(f"资料库同步：{lib.name}")
+    return cmd, " / ".join(notes) if notes else "未找到对端配置，退化为单设备本地看板"
 
 
 def printable(cmd: list[str]) -> str:

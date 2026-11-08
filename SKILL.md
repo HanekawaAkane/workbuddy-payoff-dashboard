@@ -1,6 +1,6 @@
 ---
 name: workbuddy-token-dashboard
-description: 生成 WorkBuddy 本地 / 多设备 token 与积分用量看板。包含日历热力图、按天 / 0-24 时可切换的模型分布堆叠柱、月→日→会话→请求→单次 API 调用的三级下钻、官方积分账单与「平台内积分折算 / 平台外厂商 API 牌价」两种价格对比；支持各设备导出便携包后汇总并按设备筛选。当用户询问 token 消耗、积分消耗、用量统计、模型花费、成本对比、多设备用量汇总、生成/刷新用量看板时使用。触发词：token 看板、token 消耗、积分消耗、用量统计、模型花费、成本对比、多设备。
+description: 生成 WorkBuddy 本地 / 多设备 token 与积分用量看板。包含日历热力图、按天 / 0-24 时可切换的模型分布堆叠柱、月→日→会话→请求→单次 API 调用的三级下钻、官方积分账单与「平台内积分折算 / 平台外厂商 API 牌价」两种价格对比；支持各设备导出便携包后汇总并按设备筛选。当用户询问 token 消耗、积分消耗、用量统计、模型花费、成本对比、多设备用量汇总、生成/刷新用量看板时使用。触发词：token 看板、token 消耗、积分消耗、用量统计、模型花费、成本对比、多设备、资料库同步、自动化任务、一键上传。
 version: 1.0.0
 agent_created: true
 ---
@@ -64,7 +64,25 @@ agent_created: true
 
 **必须如实说明**：合并积分是各设备本地 `credit_json` 之和，不等于账号云端账单，日志清理 / 导出周期不全 / 网页端请求都会漏记。
 
-### 两台都在线时要「自动拉取」
+### 资料库自动同步（首选，不要求两台同时在线）
+
+用户说「在另一台设备上编排自动化任务，定时把 token 明细传到资料库文件夹」时，用这条，**不要**推荐直连或手动同步盘：
+
+| 位置 | 命令 / 动作 |
+| --- | --- |
+| 本机准备 | `python scripts/push_deploy_kit.py` → 部署包里注入 `config/library-target.json`（folder_id）；`output/deploy-kit-download.html` 由 Agent 用 `LibraryUpload` 上传资料库 |
+| 另一台设备 | 下载页拿 ZIP → 解压 → 双击 `deploy/PUBLISH-BUNDLE.bat`（自动找 Python，导出无提示词便携包并上传）；或把 `deploy/SETUP-AUTOMATION.txt` 整段粘进会话，创建每天 09:00 的自动化，任务内容**固定只有一条** `python scripts/publish_bundle.py` |
+| 主设备 | `python scripts/keep_online.py --mode main`（检测到 `config/library-sync.json` 会自动加 `--library-sync`）；手动一次 `python scripts/library_sync.py --once` |
+
+关键事实（已实测，别再猜）：
+
+- `drive/upload_drive_file.py --node-id` 能**原地覆盖** `kind=drive` 的 `.json` 节点，节点 ID / 链接不变，每天跑不会堆快照。首次新建后按标题 `<设备名>.token-bundle` 查找复用。**这是比每天上传 HTML 快照更好的方案**。
+- drive 通道**拒绝 `.zip` / `.html`**（返回「该文件类型不走网盘上传」或「服务端未创建网盘文件节点」，且会留下一个空壳 web 节点）。每日同步只用 `.json`；部署包 ZIP 仍走 `build_download_page.py` 的 HTML 通道 + 附件。
+- `library_io.py` 自动探测 WorkBuddy 内置脚本目录，凭据由会话环境提供；普通 CMD 里可能失败，此时让 Agent 用资料库能力代传。
+- `library_sync.sync_once()` 只接受 `wbtd-bundle/1` 且 `prompts` 为空的包，内容未变不写盘；落盘到 `output/bundles/`，服务监视该目录自动重载。
+- **主设备不需要定时任务**（服务内建轮询）。只有对端需要自动化任务，而本机 Agent 碰不到那台机器，只能交付可粘贴指令与一键 bat。不要在本机创建多余的自动化。
+
+### 两台都在线时要「自动拉取」（备选）
 
 同步盘是被动落盘。用户明确要求「在线时自动获取对端明细」时，用**设备间直连拉取**，不要赌 WorkBuddy 私有 API：
 
@@ -111,7 +129,12 @@ agent_created: true
 - `assets/template.html` — 零依赖看板模板（纯 CSS + 原生 JS + SVG 图表）
 - `scripts/render.py` — 注入数据生成单文件 HTML；暴露 `render_html()`
 - `scripts/serve.py` — 只绑 127.0.0.1 的本地服务，打开即最新、自动重载、`/api/data` 原始 JSON
-- `scripts/push_deploy_kit.py` — 一键准备跨设备发布：密钥 / 配置 / ZIP / 下载页 / 安全自检 / 对端命令
+- `scripts/push_deploy_kit.py` — 一键准备跨设备发布：密钥 / 配置 / ZIP / 下载页 / 安全自检 / 对端命令；并把 folder_id 注入部署包
+- `scripts/library_io.py` — 封装资料库内置脚本：路径探测、列举文件夹、新建/原地覆盖 drive 节点、下载
+- `scripts/publish_bundle.py` — 对端一键：导出无提示词便携包 + 原地覆盖资料库固定节点（自动化任务的执行内容）
+- `scripts/library_sync.py` — 主设备：列举资料库文件夹 → 下载 → 校验 schema/无提示词 → 落盘 bundles
+- `deploy/PUBLISH-BUNDLE.bat` / `deploy/SETUP-AUTOMATION.txt` — 对端双击一键上传 / 创建每日自动化任务的可粘贴指令
+- `config/library-sync.example.json` — 资料库同步配置模板（folder_id / 轮询间隔 / 设备白名单）
 - `scripts/keep_online.py` — 常驻守护（node / main），子进程退出自动重启
 - `scripts/build_deploy_kit.py` — 白名单打包，拒绝 `.workbuddy/` 记忆与 `output/` 本机数据
 - `scripts/build_download_page.py` — 内嵌 ZIP 的资料库下载页

@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 import argparse
+import json
 import zipfile
 from pathlib import Path
 
@@ -26,8 +27,9 @@ SKIP_DIRS = {"__pycache__", ".pytest_cache", ".venv", "venv", ".idea", ".vscode"
 SKIP_SUFFIX = {".pyc", ".pyo", ".log", ".db", ".sqlite", ".sqlite3"}
 # 含共享密钥 / 本机产物的文件绝不进部署包
 SKIP_FILES = {
-    "peers.json", "peers.demo.json", "settings.local.json", "credentials.json",
-    ".env", "publish-manifest.json", "START-NODE-COMMAND.txt",
+    "peers.json", "peers.demo.json", "library-sync.json", "library-target.json",
+    "settings.local.json", "credentials.json", ".env",
+    "publish-manifest.json", "START-NODE-COMMAND.txt",
 }
 TOP_DIR = "workbuddy-token-exporter"
 
@@ -61,11 +63,27 @@ def main(argv=None):
     if leaked:
         raise RuntimeError(f"部署包拒绝打包本机私有文件：{leaked}")
 
+    # 把资料库目标文件夹 ID 注入部署包，让另一台设备解压后双击即可上传，
+    # 不必手敲 ID。只写 folder_id / space_id，不含任何密钥或本机用量。
+    target = {}
+    cfg = ROOT / "config" / "library-sync.json"
+    if cfg.exists():
+        try:
+            c = json.loads(cfg.read_text(encoding="utf-8"))
+            if c.get("folder_id") and not str(c["folder_id"]).startswith("PASTE_"):
+                target = {"folder_id": c["folder_id"], "space_id": c.get("space_id", "")}
+        except (OSError, ValueError):
+            pass
+
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
         for p, rel in files:
             z.write(p, f"{TOP_DIR}/{rel.as_posix()}")
+        if target:
+            z.writestr(f"{TOP_DIR}/config/library-target.json",
+                       json.dumps(target, ensure_ascii=False, indent=2) + "\n")
 
     print(f"[OK] {len(files)} 个文件 -> {out}  ({out.stat().st_size/1024:.0f} KB)")
+    print(f"[CONFIG] 已注入资料库文件夹：{target.get('folder_id', '(未配置，对端需手填)')}")
     print("[SAFE] 白名单打包：不含 .workbuddy/ 记忆、output/ 本机用量、日志或提示词。")
     print("[NEXT] 把这个 ZIP 传到另一台设备，解压后看 deploy/README.txt。")
     return 0

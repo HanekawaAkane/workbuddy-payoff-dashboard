@@ -1,0 +1,15 @@
+{
+  "_readme": [
+    "复制到 config/library-sync.json 后填写。实例文件本机保存、不入库。",
+    "folder_id：资料库专用文件夹的节点 ID，取文件夹链接 https://www.workbuddy.cn/space/d/<ID> 的尾段。",
+    "每台设备用 publish_bundle.py 覆盖自己的固定 drive 节点；主设备按标题自动发现，不必逐台登记 node_id。",
+    "devices 为空表示全部拉取；填设备名数组可只拉指定几台。",
+    "本文件不含密钥，但含个人资料库文件夹 ID，请勿提交到公开仓库。"
+  ],
+  "folder_id": "PASTE_FOLDER_NODE_ID_HERE",
+  "space_id": "",
+  "poll_seconds": 300,
+  "out_dir": "output/bundles",
+  "title_suffix": ".token-bundle",
+  "devices": []
+}

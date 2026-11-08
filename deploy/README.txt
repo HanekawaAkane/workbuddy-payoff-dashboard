@@ -40,6 +40,24 @@ WorkBuddy Token Dashboard - 另一台设备的部署包
    主设备会每 60 秒拉一次；对端离线就跳过，上线后自动补上。看板已经
    在监视 bundles 目录，页面会自动重载，不需要手动刷新。
 
+一键把明细推到资料库（推荐，不要求两台同时在线）
+------------------------------------------------
+双击 PUBLISH-BUNDLE.bat，或命令行执行：
+
+       python scripts/publish_bundle.py
+
+它会读 config/library-target.json（打包时已注入资料库文件夹 ID），导出本机
+便携包（不含提示词），然后原地覆盖 <设备名>.token-bundle.json 这个固定节点。
+第一次新建，之后每天覆盖同一个节点——节点 ID 与链接不变，不会堆积快照。
+设备名默认取主机名，多台机器要保证主机名不同。
+
+想每天自动跑：把 SETUP-AUTOMATION.txt 整段粘进这台设备的 WorkBuddy 会话，
+让它创建每天 09:00 的自动化任务；任务内容就上面这一条命令。
+
+主设备不需要定时任务：跑 python scripts/keep_online.py --mode main，
+服务会按 config/library-sync.json 定时从资料库文件夹拉取所有设备最新包，
+看板自动重载。手动拉一次：python scripts/library_sync.py --once。
+
 只想导出一次、不想常驻服务？
 ----------------------------
 双击 EXPORT.bat <同步盘目录>，会生成一个 <设备名>.json 放进同步盘。

@@ -136,9 +136,33 @@ Windows 双击 `start-multi.bat "D:\Sync\wb-devices"` 亦可。
 - 服务会监视同步盘目录，新落一个包、或某个包被更新，页面 20 秒内自动重载，不用手动操作。
 - 看板会多出：设备下拉筛选、01 节设备分布条、下钻表「设备」列、CSV 里的设备列、04 节的多设备口径说明。
 
-### 两台都在线：主动自动拉取（推荐）
+### 资料库自动同步（推荐，不要求两台同时在线）
 
-同步盘是「被动落盘」。想要**只要两台在线就自动把对端明细拿过来**，用设备间直连拉取——不依赖 WorkBuddy 私有 API，也不依赖任何云盘。
+比直连更适合「两台设备不总同时在线」：对端用 WorkBuddy 自动化任务定时把明细推到资料库固定文件夹，主设备定时去取。资料库是账号级的，天然跨设备；不需要局域网 IP、Tailscale、防火墙放行，也不依赖小程序或私有远程通道。
+
+```
+另一台设备                          资料库                          主设备
+publish_bundle.py（每天 9:00） ──▶ WorkBuddy Token 便携包/  ──▶ serve.py --library-sync
+导出 + 一键上传（原地覆盖）         <设备名>.token-bundle.json      定时拉取 → 看板自动重载
+```
+
+**一次性准备**：本机跑 `python scripts/push_deploy_kit.py`，它会把资料库文件夹 ID 注入部署包的 `config/library-target.json`。另一台设备从资料库里的部署包下载页拿 ZIP、解压。
+
+**另一台设备（一键）**：
+
+- 双击 `deploy/PUBLISH-BUNDLE.bat`：自动找到 Python、导出不含提示词的便携包、上传到资料库固定节点。**不用手敲文件夹 ID，也不用 Agent 临场操作**。
+- 每天自动跑：把 `deploy/SETUP-AUTOMATION.txt` 整段粘进那台设备的 WorkBuddy 会话，让它创建每天 09:00 的自动化任务。任务内容只有一条固定命令 `python scripts/publish_bundle.py`。
+- 每台设备固定一个 `<主机名>.token-bundle.json` 节点；脚本按标题找到同名 drive 节点就原地覆盖，**节点 ID 与链接不变，每天跑不会堆快照**。主机名必须互不相同。
+
+**主设备**：`python scripts/keep_online.py --mode main`（检测到 `config/library-sync.json` 会自动加 `--library-sync`），或直接 `python scripts/serve.py --library-sync config/library-sync.json`。服务每 300 秒列举文件夹、把变化的包下载到 `output/bundles/`，看板本来就在监视这个目录，自动重算重载。手动拉一次：`python scripts/library_sync.py --once`。
+
+**实测**：5.7 MB / 16,921 次调用的包上传成功；第二次原地覆盖、节点 ID 不变；主设备二次拉取识别「无变化」不写盘；服务内建轮询合并出两台设备 33,844 次调用。
+
+**限制**：资料库 drive 通道只认部分文件类型——`.json` 可以，`.zip` / `.html` 会被拒（「该文件类型不走网盘上传」）。所以每日同步走 `.json`，部署包 ZIP 仍走一次性下载页 / 附件。资料库凭据由 WorkBuddy 会话环境提供，在普通 CMD 里跑可能因缺环境变量失败，此时让 Agent 代为上传。
+
+### 两台都在线：设备间直连（备选）
+
+同步盘是「被动落盘」。想要**只要两台在线就自动把对端明细拿过来**，也可以直接用设备间直连拉取——不依赖 WorkBuddy 私有 API，也不依赖任何云盘；代价是两台必须同时在线且网络互通。
 
 ```
 另一台设备（节点）                          主设备
@@ -297,15 +321,21 @@ python scripts/run.py --no-prompts
 ├── start-multi.bat              主设备双击：汇总同步盘中的多设备数据
 ├── start-peers.bat              主设备双击：自动拉取在线对端（推荐）
 ├── deploy/                      另一台设备用的部署说明与双击入口
+│   ├── PUBLISH-BUNDLE.bat       一键：导出 + 上传资料库固定节点（自动化任务也跑这条）
+│   ├── SETUP-AUTOMATION.txt     粘到另一台设备 WorkBuddy 会话，创建每天 09:00 的任务
 │   ├── START-NODE.bat           启动只读节点服务（自动找 WorkBuddy 自带 Python）
 │   ├── EXPORT.bat               一次性导出（不需要常驻服务）
 │   ├── README.txt / PASTE-TO-WORKBUDDY.txt
-├── config/peers.example.json    对端清单模板（填好另存 peers.json，含密钥不入库）
+├── config/peers.example.json    直连对端清单模板（另存 peers.json，含密钥不入库）
+├── config/library-sync.example.json  资料库同步模板（另存 library-sync.json，不入库）
 ├── scripts/
 │   ├── collect.py               只读采集，支持多源 / 设备前缀 / 去重（暴露 collect_from_sources 等）
 │   ├── export.py                单设备导出便携包（默认剔除提示词）
 │   ├── peers.py                 从在线对端 GET /api/bundle 并落盘（含离线跳过）
-│   ├── build_deploy_kit.py      打包另一台设备用的 ZIP（不含本机数据）
+│   ├── library_io.py            封装资料库内置脚本（路径探测 / 列举 / 上传 / 下载）
+│   ├── publish_bundle.py        对端一键：导出便携包 + 原地覆盖资料库固定节点
+│   ├── library_sync.py          主设备：列举资料库文件夹 → 下载 → 校验 → 落盘
+│   ├── build_deploy_kit.py      打包另一台设备用的 ZIP（注入 folder_id，不含本机数据）
 │   ├── build_download_page.py   生成内嵌 ZIP 的资料库下载页（绕开 .zip 上传缺陷）
 │   ├── push_deploy_kit.py       一键：密钥→配置→打包→下载页→安全自检→对端命令
 │   ├── keep_online.py           常驻守护，node/main 两种模式，退出自动重启

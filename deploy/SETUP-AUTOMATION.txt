@@ -1,0 +1,41 @@
+把下面这一段整段复制，粘到【另一台设备】的 WorkBuddy 会话里。
+它会创建一个每天定时执行的自动化任务，任务内容只有一条固定的脚本命令——
+不需要 Agent 每次临场判断、不需要手动上传、不会每天新建资料库节点。
+
+----------------------------------------------------------------------
+请帮我创建一个自动化任务，参数严格如下：
+
+名称：Token 明细同步到资料库
+类型：重复执行
+频率：每天 09:00
+工作目录：<把这里换成解压出来的 workbuddy-token-exporter 目录绝对路径>
+
+任务内容（每次只执行这一条命令，原样执行，不要改写、不要额外生成 HTML、
+不要新建资料库节点、不要上传到别的地方）：
+
+    python scripts/publish_bundle.py
+
+说明：这个脚本会读取本机 WorkBuddy 的会话日志与积分账单，导出不含提示词的
+便携包，然后原地覆盖资料库「WorkBuddy Token 便携包」文件夹里以本机主机名
+命名的那个 .token-bundle.json 节点。脚本自己会查找同名节点并保持节点 ID 不变，
+所以每天跑不会堆积快照。设备名默认取主机名，多台机器要保证主机名不同。
+
+执行完后用一句话汇报：设备名、调用次数、资料库节点 ID；失败时如实说明原因，
+不要编造数字。
+
+创建完成后告诉我任务的 ID 和下次执行时间。
+----------------------------------------------------------------------
+
+如果这台设备找不到 python，把命令换成 deploy\PUBLISH-BUNDLE.bat
+（那个 bat 会自动找到 WorkBuddy 自带的 Python）。
+
+想立刻验证一次、不等到明天：直接在解压目录里双击 deploy\PUBLISH-BUNDLE.bat，
+或在命令行跑 python scripts/publish_bundle.py。
+
+主设备那边不需要任何定时任务：启动
+    python scripts/keep_online.py --mode main
+服务会按 config/library-sync.json 的间隔自动从资料库文件夹拉取所有设备的最新包，
+看板自动重载。也可以手动跑一次 python scripts/library_sync.py --once。
+
+前提：两台设备登录同一个 WorkBuddy 账号，且部署包里的
+config/library-target.json 带有正确的 folder_id（打包时自动注入）。

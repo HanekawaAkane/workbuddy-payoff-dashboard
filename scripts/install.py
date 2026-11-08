@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SKIP_DIRS = {"output", ".git", ".workbuddy", "__pycache__", ".pytest_cache", ".venv"}
 # 含共享密钥 / 本机私有数据的文件不进 Skill 目录
 SKIP_FILES = {
-    ".DS_Store", "*.pyc", "peers.json", "peers.demo.json",
+    ".DS_Store", "*.pyc", "peers.json", "peers.demo.json", "library-sync.json",
     "settings.local.json", ".env", "credentials.json",
     "START-NODE-COMMAND.txt", "publish-manifest.json",
 }

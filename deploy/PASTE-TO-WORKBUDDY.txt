@@ -1,16 +1,21 @@
-把下面这段话粘到「另一台设备的 WorkBuddy」会话里（或小程序选中那台电脑后发过去）。
-它会让那台设备自己导出明细，主设备再从资料库/同步盘取走。
+推荐做法：直接用同目录下的 SETUP-AUTOMATION.txt，整段粘进这台设备的
+WorkBuddy 会话，它会创建一个每天 09:00 的自动化任务，任务内容只有一条命令
+「python scripts/publish_bundle.py」——脚本自己导出并上传到资料库固定节点，
+不需要 Agent 每次临场操作。
+
+下面这段是备用方案：资料库凭据不可用、或只想走同步盘时使用。
 
 --------------------------------------------------------------------------
 在当前工作目录检查是否存在 scripts/export.py。
 
 如果存在，执行：
-  python scripts/export.py --device %COMPUTERNAME% --out <同步盘或资料库目录>/%COMPUTERNAME%.json
-并把生成的文件上传到 WorkBuddy 资料库，然后回复一行：设备名、调用数、积分合计。
+  python scripts/export.py --device %COMPUTERNAME% --out <同步盘目录>/%COMPUTERNAME%.json
+并回复一行：设备名、调用数、生成的文件路径。
 
 如果不存在 scripts/export.py，说明这台设备还没部署本项目：
 1) 打开资料库里的「WorkBuddy部署包-点此下载ZIP」页面，点「下载部署包 ZIP」
-   按钮拿到 workbuddy-token-exporter.zip 并解压（资料库不收 .zip，所以要走这个下载页）；
+   按钮拿到 workbuddy-token-exporter.zip 并解压（资料库 drive 通道不收 .zip，
+   所以要走这个下载页或页面附件）；
 2) 双击其中的 EXPORT.bat，把同步盘目录作为参数传进去；
 3) 汇报生成的文件路径，不要编造任何数字。
 
@@ -18,5 +23,9 @@
 若采集失败或没找到会话日志，如实说明原因，不要生成假数据。
 --------------------------------------------------------------------------
 
-注意：<同步盘或资料库目录> 换成你实际用的路径，比如 D:\Sync\wb-devices。
+注意：<同步盘目录> 换成你实际用的路径，比如 D:\Sync\wb-devices。
 主设备读它的命令：python scripts/serve.py --sources <同一个目录> --open
+
+资料库同步方案下主设备改用：
+    python scripts/keep_online.py --mode main
+（服务按 config/library-sync.json 定时从资料库专用文件夹拉取，不需要定时任务。）

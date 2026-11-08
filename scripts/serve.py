@@ -248,6 +248,10 @@ def main():
     ap.add_argument("--peer-out", default="", help="拉到的便携包存放目录，默认 output/bundles")
     ap.add_argument("--poll-seconds", type=int, default=0, help="覆盖 peers.json 里的 poll_seconds")
     ap.add_argument("--timeout", type=float, default=10.0, help="拉取单台对端的超时秒数")
+    ap.add_argument("--library-sync", default="",
+                    help="资料库同步配置 JSON；启用后定时从资料库文件夹拉各设备便携包")
+    ap.add_argument("--library-poll-seconds", type=int, default=0,
+                    help="覆盖资料库同步配置里的 poll_seconds")
     args = ap.parse_args()
 
     global STATE, CONFIG
@@ -266,6 +270,21 @@ def main():
         if str(peer_out) not in sources_dirs:
             sources_dirs.append(str(peer_out))
         # --peer-out 只放远端拉来的包，不会包含本机自己的导出，所以这里应当把本机算进来
+        if not args.no_local and not args.with_local:
+            args.with_local = True
+
+    library_cfg, library_out = None, None
+    if args.library_sync:
+        lp = Path(args.library_sync)
+        if not lp.exists():
+            print(f"[FATAL] 找不到资料库同步配置 {lp}", file=sys.stderr)
+            return 2
+        library_cfg = json.loads(lp.read_text(encoding="utf-8"))
+        library_out = ROOT / library_cfg.get("out_dir", "output/bundles")
+        library_out.mkdir(parents=True, exist_ok=True)
+        if str(library_out) not in sources_dirs:
+            sources_dirs.append(str(library_out))
+        # 同理：资料库拉来的都是别的设备的包，本机数据要一起算
         if not args.no_local and not args.with_local:
             args.with_local = True
 
@@ -310,6 +329,25 @@ def main():
                 time.sleep(max(10, poll))
         threading.Thread(target=_loop, daemon=True, name="peer-poller").start()
         print(f"[PEER] 每 {max(10, poll)} 秒拉取 {len(peer_cfg.get('peers', []))} 个对端 -> {peer_out}", flush=True)
+
+    if library_cfg:
+        import library_sync  # noqa: E402
+        lpoll = args.library_poll_seconds or int(library_cfg.get("poll_seconds", 300))
+
+        def _lib_log(msg):
+            sys.stderr.write("[%s] [LIBRARY] %s\n" % (datetime.now(CST).strftime("%H:%M:%S"), msg))
+            sys.stderr.flush()
+
+        def _lib_loop():
+            while True:
+                try:
+                    library_sync.sync_once(library_cfg, library_out, log=_lib_log)
+                except Exception as e:  # noqa: BLE001
+                    _lib_log(f"轮询异常：{type(e).__name__}: {e}")
+                time.sleep(max(30, lpoll))
+
+        threading.Thread(target=_lib_loop, daemon=True, name="library-poller").start()
+        print(f"[LIBRARY] 每 {max(30, lpoll)} 秒从资料库文件夹同步 -> {library_out}", flush=True)
 
     url = f"http://{args.host}:{args.port}/"
     srv = ThreadingHTTPServer((args.host, args.port), Handler)

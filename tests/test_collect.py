@@ -389,9 +389,14 @@ class TestPushDeployKit(unittest.TestCase):
         self.assertEqual(node[node.index("--token") + 1], "a" * 32)
         self.assertIn("--no-prompts", node)
         self.assertNotIn("a" * 32, keep_online.printable(node))
-        main_cmd, note = keep_online.main_command()
+        # 用空目录模拟「还没配置任何对端」，避免断言依赖本机真实配置文件是否存在
+        from unittest import mock  # noqa: PLC0415
+        with tempfile.TemporaryDirectory() as td:
+            with mock.patch.object(keep_online, "ROOT", Path(td)):
+                main_cmd, note = keep_online.main_command()
         self.assertEqual(main_cmd[main_cmd.index("--host") + 1], "127.0.0.1")
-        self.assertIn("未找到", note)  # 仓库里不应提交含密钥的 peers.json
+        self.assertIn("未找到", note)
+        self.assertNotIn("--peers", main_cmd)
 
     def test_token_selection(self):
         import push_deploy_kit as p  # noqa: PLC0415
@@ -438,6 +443,86 @@ class TestPushDeployKit(unittest.TestCase):
             finally:
                 p.ZIP_PATH, p.PAGE_PATH = old
             self.assertTrue(any("出现共享密钥" in x for x in problems2))
+
+
+class TestLibrarySync(unittest.TestCase):
+    """资料库同步：只收本项目便携包、不带提示词、内容不变不写盘。"""
+
+    @staticmethod
+    def _bundle(dev="devA", hit=100, prompts=None):
+        return json.dumps({
+            "schema": "wbtd-bundle/1", "device": dev, "exported_at": "2026-11-08T09:00:00+08:00",
+            "calls": [{"sid": f"{dev}::s", "uid": f"{dev}::u", "reqid": "r", "ts": 1793930000000,
+                       "model": "glm-5.3-flash", "hit": hit, "miss": 10, "out": 5,
+                       "write": 0, "credit": 0.1, "kind": 0, "is_peak": 0}],
+            "bills": {}, "sessions": {}, "prompts": prompts or {},
+        }, ensure_ascii=False).encode("utf-8")
+
+    def test_validate_rejects_bad_payloads(self):
+        import library_sync  # noqa: PLC0415
+        self.assertEqual(library_sync.validate(self._bundle())["device"], "devA")
+        for bad, why in ((b"not json", "非 JSON"),
+                         (b'{"schema":"other/1","device":"x","calls":[]}', "schema"),
+                         (self._bundle(prompts={"x": [["prompt"]]}), "提示词")):
+            with self.subTest(why=why):
+                with self.assertRaises(ValueError):
+                    library_sync.validate(bad)
+
+    def test_sync_once_filters_writes_and_is_idempotent(self):
+        import library_sync  # noqa: PLC0415
+
+        class FakeIO:
+            def __init__(self):
+                self.calls = 0
+                self.nodes = [
+                    {"id": "n1", "kind": "drive", "title": "devA.token-bundle"},
+                    {"id": "n2", "kind": "drive", "title": "unrelated-file"},
+                    {"id": "n3", "kind": "web", "title": "devB.token-bundle"},
+                    {"id": "n4", "kind": "drive", "title": "devC.token-bundle"},
+                ]
+                self.data = {"n1": TestLibrarySync._bundle("devA"), "n4": b'{"broken":'}
+
+            def list_folder(self, folder, space_id="", limit=100):
+                self.calls += 1
+                return self.nodes
+
+            def download(self, nid, timeout=60.0):
+                return self.data[nid], {"ext": "json"}
+
+        with tempfile.TemporaryDirectory() as td:
+            io = FakeIO()
+            cfg = {"folder_id": "F", "title_suffix": ".token-bundle"}
+            logs = []
+            w1 = library_sync.sync_once(cfg, Path(td), io=io, log=logs.append)
+            self.assertEqual([p.name for p in w1], ["devA.json"])
+            self.assertTrue(any("SKIP" in x and "devC" in x for x in logs))
+            w2 = library_sync.sync_once(cfg, Path(td), io=io, log=logs.append)
+            self.assertEqual(w2, [], "内容未变时不应重复写盘")
+            self.assertTrue(any("SAME" in x for x in logs))
+            self.assertEqual(io.calls, 2)
+
+    def test_safe_name_blocks_path_traversal(self):
+        import library_sync  # noqa: PLC0415
+        self.assertEqual(library_sync.safe_name("../evil/..\\x"), "evilx")
+
+
+class TestDeployKitInjection(unittest.TestCase):
+    """部署包要自带资料库文件夹 ID，但不能带本机同步实例。"""
+
+    def test_injected_target_config(self):
+        import build_deploy_kit  # noqa: PLC0415
+        import zipfile  # noqa: PLC0415
+        with tempfile.TemporaryDirectory() as td:
+            zp = Path(td) / "kit.zip"
+            self.assertEqual(build_deploy_kit.main(["--out", str(zp)]), 0)
+            with zipfile.ZipFile(zp) as z:
+                names = z.namelist()
+                self.assertIn("workbuddy-token-exporter/config/library-target.json", names)
+                target = json.loads(z.read("workbuddy-token-exporter/config/library-target.json"))
+                self.assertTrue(target.get("folder_id"))
+                self.assertFalse(any(n.endswith("/library-sync.json") for n in names))
+                self.assertIn("workbuddy-token-exporter/scripts/publish_bundle.py", names)
+                self.assertIn("workbuddy-token-exporter/deploy/PUBLISH-BUNDLE.bat", names)
 
 
 if __name__ == "__main__":
