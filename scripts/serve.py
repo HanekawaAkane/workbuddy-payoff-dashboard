@@ -140,7 +140,7 @@ class State:
         with self.lock:
             d = self.data
             return {
-                "ok": bool(self.html), "sig": self.sig, "generated": self.generated,
+                "ok": bool(self.html) and not self.error, "sig": self.sig, "generated": self.generated,
                 "error": self.error,
                 "n_calls": d["meta"]["n_calls"] if d else 0,
                 "total_credit": d["meta"]["total_credit"] if d else 0,

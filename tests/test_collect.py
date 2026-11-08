@@ -27,11 +27,12 @@ class TestPricing(unittest.TestCase):
                 self.assertIn(k, p, f"{name}.{k}")
                 self.assertGreaterEqual(p[k], 0)
 
-    def test_plans_have_positive_credits(self):
-        for p in PRICING["plans"]:
-            self.assertGreater(p["credits"], 0)
-            self.assertGreater(p["credits_base"], 0)
-            self.assertLessEqual(p["credits_base"], p["credits"])
+    def test_no_platform_pricing_in_config(self):
+        """金额只按厂商牌价算：配置里不应再有套餐 / 积分折算数据。"""
+        for k in ("plans", "plan_notes", "plan_source", "default_plan"):
+            self.assertNotIn(k, PRICING)
+        self.assertIn("models", PRICING)
+        self.assertIn("price_unit", PRICING)
 
     def test_time_of_use_peak_is_double(self):
         collect.PRICING = PRICING
@@ -539,9 +540,6 @@ class TestRemoteStats(unittest.TestCase):
                 [0, t1, 0, 100, 50, 20, 0, 0.1, 0.5, 1, 0, 0.2],
                 [1, t2, 0, 10, 5, 2, 0, 0.05, 0.1, 0, 0, 0.1],
             ],
-            "plans": [{"id": "p", "name": "测试套餐", "monthly_price": 100,
-                       "credits": 1000, "credits_base": 1000}],
-            "default_plan": "p",
             "meta": {"generated_at": "2026-11-08T12:00:00+08:00", "range": [t1, t2],
                      "n_calls": 2, "n_sessions": 2, "n_requests": 2, "n_models": 1,
                      "total_tokens": 187, "covered_tokens": 187,
@@ -557,8 +555,9 @@ class TestRemoteStats(unittest.TestCase):
         self.assertEqual(st["per_device"]["设备A"]["tokens"], 170)
         self.assertEqual(st["per_model"]["Model A"]["tokens"], 187)
         self.assertEqual(len(st["per_day"]), 2)
-        self.assertAlmostEqual(st["plan"]["per_credit"], 0.1)
-        self.assertAlmostEqual(st["totals"]["in_cost"], 0.03)
+        self.assertNotIn("plan", st)
+        self.assertNotIn("in_cost", st["totals"])
+        self.assertAlmostEqual(st["totals"]["api_cost"], 0.6)
         self.assertEqual(st["totals"]["peak"], 1)
         self.assertAlmostEqual(st["coverage"]["ratio"], 1.0)
 

@@ -4,7 +4,7 @@
 workbuddy-token-dashboard / remote_stats.py
 
 统计【资料库同步过来的远端设备】token 用量。与看板共用 collect.py 的口径，
-不另算一套：四段 token、官方分摊积分、API 直购价、套餐单价全部一致。
+不另算一套：四段 token、官方分摊积分、API 直购价全部一致。金额只按厂商 API 牌价计算，不做积分折人民币。
 
     python scripts/remote_stats.py                       # 读 output/bundles/*.json
     python scripts/remote_stats.py --refresh            # 先从资料库拉最新包再统计
@@ -106,14 +106,9 @@ def compute(data: dict) -> dict:
         add(per_model[mname], row)
         add(per_day[stamp(row[C_TS])], row)
 
-    plans = {p["id"]: p for p in data["plans"]}
-    plan = plans.get(data["default_plan"], {})
-    per_credit = (plan.get("monthly_price", 0) / plan.get("credits", 1)) if plan else 0.0
-
     def finish(b):
         b["tokens"] = b["hit"] + b["miss"] + b["out"] + b["write"]
-        b["in_cost"] = b["credit"] * per_credit
-        for k in ("credit", "api_cost", "in_cost"):
+        for k in ("credit", "api_cost"):
             b[k] = round(b[k], 4)
         return b
 
@@ -122,16 +117,13 @@ def compute(data: dict) -> dict:
         "generated_at": m["generated_at"],
         "source_devices": sorted(per_dev),
         "range": [stamp(m["range"][0], "%Y-%m-%d %H:%M"), stamp(m["range"][1], "%Y-%m-%d %H:%M")],
-        "plan": {"id": plan.get("id"), "name": plan.get("name"),
-                 "monthly_price": plan.get("monthly_price"), "credits": plan.get("credits"),
-                 "per_credit": round(per_credit, 8)},
         "totals": finish({
             "calls": m["n_calls"], "hit": sum(b["hit"] for b in per_dev.values()),
             "miss": sum(b["miss"] for b in per_dev.values()),
             "out": sum(b["out"] for b in per_dev.values()),
             "write": sum(b["write"] for b in per_dev.values()),
             "credit": m["total_credit"], "api_cost": m["total_api_cost"],
-            "peak": sum(b["peak"] for b in per_dev.values()), "in_cost": m["total_credit"] * per_credit,
+            "peak": sum(b["peak"] for b in per_dev.values()),
         }),
         "per_device": {k: finish(v) for k, v in sorted(per_dev.items())},
         "per_model": dict(sorted(((k, finish(v)) for k, v in per_model.items()),
@@ -161,28 +153,24 @@ def print_report(st: dict, bundles: list[Path], warning: str) -> None:
     print(f"数据源：{len(bundles)} 个便携包 | 设备：{', '.join(st['source_devices'])}")
     print(f"时间范围：{st['range'][0]}  ~  {st['range'][1]}（北京时间）")
     print(f"会话 {st['n_sessions']} / 请求 {st['n_requests']} / 模型 {st['n_models']}")
-    print(f"套餐：{st['plan']['name']}  ¥{st['plan']['monthly_price']}/"
-          f"{n(st['plan']['credits'])} 积分 = ¥{st['plan']['per_credit']:.5f}/积分")
-    print(f"牌价覆盖率：{st['coverage']['ratio']:.1%}")
+    print(f"牌价覆盖率：{st['coverage']['ratio']:.1%}　·　金额口径：厂商 API 直购价（人民币）")
     if warning:
         print(warning)
 
-    W = [14, 8, 15, 14, 13, 10, 16, 11, 10, 11]
-    hdr = ("设备", "调用", "缓存命中", "未命中输入", "输出", "缓存写入", "总Token", "积分", "平台内¥", "API直购¥")
-    print("\n" + "-" * 118)
+    W = [14, 8, 15, 14, 13, 10, 16, 11, 12]
+    hdr = ("设备", "调用", "缓存命中", "未命中输入", "输出", "缓存写入", "总Token", "积分", "API直购¥")
+    print("\n" + "-" * 106)
     print(row(hdr, W))
-    print("-" * 118)
+    print("-" * 106)
     for dev, b in st["per_device"].items():
         print(row((dev[:13], n(b["calls"]), n(b["hit"]), n(b["miss"]), n(b["out"]),
                    n(b["write"]), n(b["tokens"]), f"{b['credit']:,.2f}",
-                   f"{b['in_cost']:,.2f}", f"{b['api_cost']:,.2f}"), W))
-    print("-" * 118)
+                   f"{b['api_cost']:,.2f}"), W))
+    print("-" * 106)
     print(row(("合计", n(t["calls"]), n(t["hit"]), n(t["miss"]), n(t["out"]),
                n(t["write"]), n(t["tokens"]), f"{t['credit']:,.2f}",
-               f"{t['in_cost']:,.2f}", f"{t['api_cost']:,.2f}"), W))
-    ratio = t["api_cost"] / max(t["in_cost"], 1e-9)
-    print(f"\n平台外/平台内 = {ratio:.2f}×（同用量 API 直购价 ÷ 积分折算）")
-    print(f"峰时调用 {n(t['peak'])} 次，占 {t['peak']/max(t['calls'],1):.1%}")
+               f"{t['api_cost']:,.2f}"), W))
+    print(f"\n峰时调用 {n(t['peak'])} 次，占 {t['peak']/max(t['calls'],1):.1%}")
 
     W3 = [28, 8, 16, 11, 12]
     print("\n模型 TOP 8（按 Token）")
@@ -202,7 +190,7 @@ def print_report(st: dict, bundles: list[Path], warning: str) -> None:
 def write_csv(st: dict, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fields = ["scope", "name", "calls", "cache_hit", "input_miss", "output", "cache_write",
-              "total_tokens", "official_credit", "in_platform_cny", "api_direct_cny", "peak_calls"]
+              "total_tokens", "official_credit", "api_direct_cny", "peak_calls"]
     with path.open("w", encoding="utf-8-sig", newline="") as f:
         w = csv.writer(f)
         w.writerow(fields)
@@ -210,7 +198,7 @@ def write_csv(st: dict, path: Path) -> None:
                               ("day", st["per_day"])):
             for name, b in mapping.items():
                 w.writerow([scope, name, b["calls"], b["hit"], b["miss"], b["out"], b["write"],
-                            b["tokens"], b["credit"], b["in_cost"], b["api_cost"], b["peak"]])
+                            b["tokens"], b["credit"], b["api_cost"], b["peak"]])
 
 
 def main(argv=None) -> int:

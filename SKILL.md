@@ -1,6 +1,6 @@
 ---
 name: workbuddy-token-dashboard
-description: 生成 WorkBuddy 本地 / 多设备 token 与积分用量看板。包含日历热力图、按天 / 0-24 时可切换的模型分布堆叠柱、月→日→会话→请求→单次 API 调用的三级下钻、官方积分账单与「平台内积分折算 / 平台外厂商 API 牌价」两种价格对比；支持各设备导出便携包后汇总并按设备筛选。当用户询问 token 消耗、积分消耗、用量统计、模型花费、成本对比、多设备用量汇总、生成/刷新用量看板时使用。触发词：token 看板、token 消耗、积分消耗、用量统计、模型花费、成本对比、多设备、资料库同步、自动化任务、一键上传。
+description: 生成 WorkBuddy 本地 / 多设备 token 与积分用量看板。包含日历热力图、按天 / 0-24 时可切换的模型分布堆叠柱、月→日→会话→请求→单次 API 调用的三级下钻，以及按厂商牌价计算的 API 直购价（按模型花费、四段 token 花费构成）；官方积分只作用量指标，不折人民币。支持各设备导出便携包后汇总并按设备筛选。当用户询问 token 消耗、积分消耗、用量统计、模型花费、成本对比、多设备用量汇总、生成/刷新用量看板时使用。触发词：token 看板、token 消耗、积分消耗、用量统计、模型花费、成本对比、多设备、资料库同步、自动化任务、一键上传。
 version: 1.0.0
 agent_created: true
 ---
@@ -17,10 +17,10 @@ agent_created: true
 | 一次用户请求 | `providerData.conversationRequestId`，一个请求可含几十次 API 调用 |
 | 四段 token | 未命中输入 `prompt_cache_miss_tokens`、输出 `completion_tokens`、缓存命中 `prompt_cache_hit_tokens + cache_read_input_tokens`、缓存写入 `prompt_cache_write_tokens + cache_creation_input_tokens` |
 | 官方积分 | `~/.workbuddy/workbuddy.db :: session_usage.credit_json`，key 为去掉连字符的 `conversationRequestId`；缺失时回退到逐调用 `rawUsage.credit` 之和 |
-| 平台内金额 | 官方实际积分 × (套餐月价 ÷ 每月实得积分)。**不按模型倍率换算** |
-| 平台外金额 | 每次调用四段 token × 该模型厂商官网牌价之和。DeepSeek 按请求时间戳判峰谷分别计价 |
+| API 直购价 | 每次调用四段 token × 该模型厂商官网牌价之和；DeepSeek 按请求时间戳判峰谷分别计价。**唯一金额口径** |
+| 官方积分 | 只作官方账单的用量指标，**不乘套餐单价、不折人民币**；`config/pricing.json` 与采集产物都不含套餐数据 |
 
-所有金额都是估算，必须在交付时明说「不是账单」。价格表在 `config/pricing.json`，改动或过期时更新它，不要在代码里硬编码。
+所有金额都是估算，必须在交付时明说「不是账单」。价格表在 `config/pricing.json`，改动或过期时更新它，不要在代码里硬编码。**不要汇报平台内外倍率或积分折算金额，本项目不计算这些。**
 
 ## 使用方式
 
@@ -35,7 +35,7 @@ agent_created: true
 
 1. 执行 `python scripts/run.py`（Python 3.9+，无第三方依赖），生成 `output/token-dashboard-<时间戳>.html` 与 `token-dashboard-latest.html`。
 2. 用 `present_files` 打开最新 HTML。
-3. 简明汇报：数据范围、总 token、官方积分、平台内估算、API 直购价、两者倍率、牌价覆盖率。
+3. 简明汇报：数据范围、总 token、官方积分、API 直购价、牌价覆盖率。不要编造积分折人民币或平台内外倍率。
 4. 若 `credit_json` 缺失或牌价覆盖率 < 100%，主动说明局限，不要假装数据完整。
 
 对外分享 / 上传资料库时加 `--no-prompts`，剔除提示词摘要：`python scripts/run.py --no-prompts`。
@@ -113,7 +113,7 @@ agent_created: true
 ```
 在工作目录执行 `python scripts/run.py --no-prompts`，重新采集本机 WorkBuddy 的会话日志与官方积分账单，刷新 output/token-dashboard-latest.html。
 若用户明确要求上传资料库，再把本次新生成的 HTML 上传，并说明每天上传会在资料库累积快照。
-最后用一句话汇报：数据截止日期、总 token、官方积分、平台内消耗估算、同用量 API 直购价、两者倍率。
+最后用一句话汇报：数据截止日期、总 token、官方积分、同用量 API 直购价、牌价覆盖率。
 若采集失败或牌价覆盖率不足 100%，如实说明失败原因，不要编造数字。
 ```
 
@@ -125,7 +125,7 @@ agent_created: true
 - `export-device.bat` / `start-multi.bat` — 多设备导出 / 汇总双击入口
 - `scripts/export.py` — 单设备导出便携包
 - `scripts/collect.py` — 只读采集；支持多源、设备前缀、跨源去重（`collect_from_sources()` / `resolve_sources()` / `path_signature()`）
-- `config/pricing.json` — 厂商牌价 + WorkBuddy 套餐
+- `config/pricing.json` — 各厂商 API 牌价 + 来源（不含套餐 / 积分折算）
 - `assets/template.html` — 零依赖看板模板（纯 CSS + 原生 JS + SVG 图表）
 - `scripts/render.py` — 注入数据生成单文件 HTML；暴露 `render_html()`
 - `scripts/serve.py` — 只绑 127.0.0.1 的本地服务，打开即最新、自动重载、`/api/data` 原始 JSON

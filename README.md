@@ -1,8 +1,8 @@
 # workbuddy-token-dashboard
 
-WorkBuddy 的本地 token / 积分用量看板。一个离线单文件 HTML，日历热力图、按天 / 0–24 时模型分布、月→日→会话→请求→单次 API 调用的逐级下钻，以及「平台内积分折算」与「平台外厂商 API 牌价」两种价格对比。
+WorkBuddy 的本地 token / 积分用量看板。一个离线单文件 HTML，日历热力图、按天 / 0–24 时模型分布、月→日→会话→请求→单次 API 调用的逐级下钻，以及按各模型厂商牌价计算的 **API 直购价**（含按模型花费、四段 token 花费构成）。
 
-同时是一个 WorkBuddy Skill：首次安装可创建每天 09:00 的定时任务，自动刷新并把带时间戳的看板上传到资料库。
+**金额只走厂商 API 牌价这一条口径**；官方积分仅作为账单用量指标展示，不乘任何套餐单价、不折算人民币。同时是一个 WorkBuddy Skill，默认不创建定时任务。
 
 > 直接看效果：打开 [`examples/sample-dashboard.html`](examples/sample-dashboard.html)（合成数据，无真实用量）。
 
@@ -19,7 +19,7 @@ WorkBuddy 客户端本身不提供逐请求的用量明细。但它在本机留�
 
 两者用 `conversationRequestId` 关联。于是可以做到：积分用官方账单（准确），token 用逐调用日志（可算厂商牌价），两条路径互不干扰。
 
-**和「按模型倍率换算」的做法不同**：官方只公开了客户端面板上的 x0.06 / x0.79 之类倍率，且会随活动和峰谷时段变动，不是计费依据。本项目金额估算走「官方积分 × 套餐单价」，另外用账单做最小二乘反推各模型的实测积分单价作为参考。
+**只算一种金额**：每条调用的四段 token 分别乘以该模型的厂商牌价再累加，得到「同用量 API 直购价」。官方只公开了客户端面板上的倍率（会随活动与峰谷变动），且未公开逐模型四段积分单价，所以本看板**不按模型倍率换算、不做积分折人民币**；积分只用来反映官方账单的用量。
 
 ---
 
@@ -162,14 +162,14 @@ publish_bundle.py（每天 9:00） ──▶ WorkBuddy Token 便携包/  ──�
 
 ### 命令行统计远端数据
 
-`scripts/remote_stats.py` 从资料库同步下来的便携包做统计，**口径与看板完全一致**（复用 `collect.py` 的四段 token / 官方积分 / 两种价格计算，不另算一套）：
+`scripts/remote_stats.py` 从资料库同步下来的便携包做统计，**口径与看板完全一致**（复用 `collect.py` 的四段 token / 官方积分 / API 直购价计算，不另算一套）：
 
 ```bash
 python scripts/remote_stats.py --refresh --json output/remote-stats.json --csv output/remote-stats.csv
 python scripts/remote_stats.py --refresh --with-local   # 连本机一起统计
 ```
 
-输出每台设备的调用数、缓存命中 / 未命中输入 / 输出 / 缓存写入、官方积分、平台内折算、API 直购价、模型 TOP 8、最近 10 天、峰时占比；`--json` / `--csv` 可导出给别的工具。默认只统计资料库远端包，`--refresh` 会先拉最新。
+输出每台设备的调用数、缓存命中 / 未命中输入 / 输出 / 缓存写入、官方积分、API 直购价、模型 TOP 8、最近 10 天、峰时占比；`--json` / `--csv` 可导出给别的工具。默认只统计资料库远端包，`--refresh` 会先拉最新。积分只是用量指标，金额列只有 API 直购价。
 
 脚本带**同源检测**：把 uid 去掉设备前缀后与本机比对，重合超过 50% 会明确警告「这是本机重复导出，合并会双计」，避免把一份数据当成两台设备。
 
@@ -254,17 +254,14 @@ Windows 双击 `start-peers.bat` 亦可。主设备后台线程每 60 秒拉一�
 
 支持搜索、列排序、CSV 导出。单次调用详情会展开该模型的四段牌价与逐段金额。**多设备合并时**顶部出现设备下拉筛选，下钻表多一列「设备」（多台时显示数量），CSV 也带设备列。
 
-**04 · 积分口径与两种价格**
+**04 · API 直购价**
 
-- `消耗金额估算 = 官方实际积分 × (套餐月价 ÷ 每月实得积分)`
-- `同用量 API 直购价 = Σ 每次调用 (未命中输入×P_miss + 输出×P_out + 缓存命中×P_hit + 缓存写入×P_write) ÷ 1e6`
-
-套餐可在页面里实时切换，金额随之重算；也可切「仅基础积分口径」排除限时加赠积分。另外展示：
-
-- WorkBuddy 官方套餐表与 ¥/积分
-- 从账单反推的各模型实测积分单价（含 R²）
+- 主金额卡：`同用量 API 直购价 = Σ 每次调用 (未命中输入×P_miss + 输出×P_out + 缓存命中×P_hit + 缓存写入×P_write) ÷ 1e6`
+- **按模型的 API 花费** TOP 8 横条
+- **四段 token 花费构成**：用同一份牌价把金额拆回未命中输入 / 输出 / 缓存命中 / 缓存写入，合计与主金额一致
 - 16 个模型的厂商牌价、来源链接与核验状态
 - 牌价覆盖率（不足 100% 会明确警告，未覆盖 token 不假装是 0 元）
+- 积分口径说明：只作官方账单用量指标，不参与金额计算；账单积分按调用权重分摊，保证任何下钻层级加总一致
 
 **05 · 打开方式** — 一键快照 / 本地实时服务 / 多设备自动拉取 / 可选定时任务的命令速查。
 
@@ -287,7 +284,7 @@ Windows 双击 `start-peers.bat` 亦可。主设备后台线程每 60 秒拉一�
 - **官方核验**：DeepSeek、智谱 AI、MiniMax、Kimi、阶跃星辰、腾讯混元（Hy4 发布价）
 - **推定 / 第三方**：`space-bunny`（官方已认领为 MiniMax-M3.1-Flash 早期匿名版）、`mimo-v2.6-pro`（USD→CNY 折算）、`hy3`（第三方汇总）、`minimax-m3-pay`（内部别名）
 
-套餐价格来自 [WorkBuddy 官方定价页](https://www.codebuddy.cn/docs/workbuddy/Pricing)，积分规则见[官方积分文档](https://www.codebuddy.cn/docs/workbuddy/Credits)。腾讯云公开的「Credits/Million tokens」表属于企业 / 国际 Token Plan 口径，与国内个人版积分反算差 3–15 倍，**本项目不采用**。
+积分规则见[官方积分文档](https://www.codebuddy.cn/docs/workbuddy/Credits)，但本看板**不用它算钱**：官方未公布逐模型四段积分单价，`config/pricing.json` 里也不含任何套餐价格。腾讯云公开的「Credits/Million tokens」表属于企业 / 国际 Token Plan 口径，与国内个人版积分反算差 3–15 倍，同样不采用。
 
 **所有金额都是估算，不是账单。** 厂商牌价会变，改 `config/pricing.json` 后重新跑 `run.py` 即可。
 
@@ -327,7 +324,7 @@ python scripts/run.py --no-prompts
 ├── README.md
 ├── LICENSE                      MIT
 ├── config/
-│   └── pricing.json             厂商牌价 + WorkBuddy 套餐 + 来源
+│   └── pricing.json             各厂商 API 牌价 + 来源（不含套餐 / 积分折算）
 ├── open-snapshot.bat            一键：重算快照 + 浏览器打开
 ├── start-live.bat               一键：启动本地实时服务 + 打开浏览器
 ├── export-device.bat            每台设备双击：导出便携包到同步盘

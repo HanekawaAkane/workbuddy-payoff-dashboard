@@ -10,35 +10,14 @@
     "cache_hit": "缓存命中",
     "cache_write": "缓存写入"
   },
-  "default_plan": "advanced_auto_year",
   "notes": [
-    "所有价格均为各模型厂商面向开发者的按量计费牌价（人民币），不是 WorkBuddy 的套餐价格。",
+    "所有价格均为各模型厂商面向开发者的按量计费牌价（人民币），单位：元 / 百万 tokens。",
     "cache_write：除 Kimi K3 系列明确单列「缓存写入(5min)」外，多数厂商采用隐式前缀缓存，不单独收费；本表按 input_miss 同价保守计入。本机样本中 cache_write 恒为 0，因此不影响当前结果。",
     "DeepSeek 采用峰谷定价：工作日（周一至周五）北京时间 09:00-12:00、14:00-18:00 为峰时，其余为谷时（周末全天谷时）；按单条请求时间戳判定。价格表里带「峰谷」标签的模型显示为「谷时 / 峰时」两个单价。",
     "MiniMax-M3 采用「≤512K 输入 tokens 永久五折」档；若单次输入超过 512K，牌价翻倍，本表未区分（样本中极少）。",
     "space-bunny 已由官方认领为 MiniMax-M3.1-Flash 的早期匿名版本，按同一牌价计入，但标记为「映射推定」。",
-    "hy4-free / hy3 在 WorkBuddy 内曾限时免费（积分消耗为 0），但「同用量 API 直购价」仍按厂商牌价计算——这正是平台内外对比的意义。",
+    "hy4-free / hy3 在 WorkBuddy 内曾限时免费（积分消耗为 0），按量计费牌价仍照常计入 API 直购价：积分是平台用量指标，与厂商牌价是两套独立口径。",
     "价格会变动。本表是 2026-11-06 的快照，请在发布前重新核对 source 链接。"
-  ],
-  "plans": [
-    {"id": "free",                 "name": "体验版",       "billing": "免费",        "monthly_price": 0,    "credits": 500,   "credits_base": 500},
-    {"id": "standard_monthly",    "name": "标准版",       "billing": "月付",        "monthly_price": 99,   "credits": 4000,  "credits_base": 2000},
-    {"id": "standard_auto_month", "name": "标准版",       "billing": "连续包月7折", "monthly_price": 70,   "credits": 4000,  "credits_base": 2000},
-    {"id": "standard_auto_year",  "name": "标准版",       "billing": "连续包年5.6折","monthly_price": 56,  "credits": 4000,  "credits_base": 2000},
-    {"id": "advanced_monthly",    "name": "高级版",       "billing": "月付",        "monthly_price": 199,  "credits": 9000,  "credits_base": 4000},
-    {"id": "advanced_auto_month", "name": "高级版",       "billing": "连续包月7折", "monthly_price": 140,  "credits": 9000,  "credits_base": 4000},
-    {"id": "advanced_auto_year",  "name": "高级版",       "billing": "连续包年5.6折","monthly_price": 112, "credits": 9000,  "credits_base": 4000},
-    {"id": "ultimate_monthly",    "name": "旗舰版",       "billing": "月付",        "monthly_price": 999,  "credits": 50000, "credits_base": 20000},
-    {"id": "ultimate_auto_month", "name": "旗舰版",       "billing": "连续包月7折", "monthly_price": 700,  "credits": 50000, "credits_base": 20000},
-    {"id": "ultimate_auto_year",  "name": "旗舰版",       "billing": "连续包年5.6折","monthly_price": 560, "credits": 50000, "credits_base": 20000},
-    {"id": "addon",               "name": "加量包",       "billing": "一次性1000积分","monthly_price": 50, "credits": 1000,  "credits_base": 1000}
-  ],
-  "plan_source": "https://www.codebuddy.cn/docs/workbuddy/Pricing",
-  "plan_notes": [
-    "credits = 每月实得积分（基础 + 限时加赠）；credits_base = 仅基础积分。",
-    "连续包年按年价 / 12 折算为月价。",
-    "加赠积分自到账日起 1 个月有效、当月不结转；按 credits 计算是乐观口径，若赠送积分未用完，实际单价更接近 per_credit_base。",
-    "体验版 0 元，per_credit = 0，故平台内估算金额为 0；这是「免费额度」而非真实成本，请谨慎解读。"
   ],
   "models": {
     "deepseek-v4.1-flash": {

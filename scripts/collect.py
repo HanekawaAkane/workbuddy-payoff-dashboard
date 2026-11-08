@@ -9,7 +9,7 @@ workbuddy-token-dashboard / collect.py
   1) <home>/projects/**/*.jsonl                 会话记录，providerData.rawUsage 含四段 token
   2) <home>/workbuddy.db  :: session_usage     credit_json 为官方逐「请求」积分账单
   3) <home>/workbuddy.db  :: sessions         会话标题 / 工作目录 / 创建时间
-  4) config/pricing.json                       各厂商 API 牌价与 WorkBuddy 套餐
+  4) config/pricing.json                       各厂商 API 牌价
 
 关键口径：
   - 一条带 rawUsage 的记录 = 一次模型 API 调用（用 providerData.messageId 去重）。
@@ -240,7 +240,6 @@ def build(pricing: dict, calls: list, bills: dict, db_sessions: dict, with_promp
     req_keys = sorted(groups, key=lambda k: min(calls[i]["ts"] for i in groups[k]))
     request_rows, call_rows = [], []
     req_call_rows: list[list[int]] = []
-    fit_rows = {m: [] for m in model_ids}
     total_tokens = covered_tokens = 0
     total_credit = total_cost = 0.0
     total_log_credit = 0.0
@@ -267,8 +266,6 @@ def build(pricing: dict, calls: list, bills: dict, db_sessions: dict, with_promp
             total_tokens += c["hit"] + c["miss"] + c["out"] + c["write"]
             cost += c_cost
             total_cost += c_cost
-            if c["credit"] > 0:
-                fit_rows[c["model"]].append((c["hit"] / 1e6, (c["miss"] + c["write"]) / 1e6, c["out"] / 1e6, c["credit"]))
             call_rows.append([
                 len(request_rows), c["ts"], mid(c["model"]), c["hit"], c["miss"], c["out"], c["write"],
                 round(c["credit"], 6), round(c_cost, 8), 1 if c["is_peak"] else 0, c["kind"], 0.0,
@@ -305,21 +302,6 @@ def build(pricing: dict, calls: list, bills: dict, db_sessions: dict, with_promp
             round(credit, 6), round(cost, 8), len(idxs), src, prompt,
         ])
 
-    # 账单反推：每模型逐段积分单价
-    fit_table = []
-    for m, rows in fit_rows.items():
-        if len(rows) < 20:
-            continue
-        co = least_squares(rows)
-        if not co:
-            continue
-        sse = sum((h * co[0] + mi * co[1] + o * co[2] - y) ** 2 for h, mi, o, y in rows)
-        ym = sum(y for *_, y in rows) / len(rows)
-        sst = sum((y - ym) ** 2 for *_, y in rows)
-        r2 = 1 - sse / sst if sst > 0 else 0.0
-        fit_table.append([mid(m), len(rows), round(co[0], 3), round(co[1], 3), round(co[2], 3), round(r2, 4),
-                          round(sum(y for *_, y in rows), 2)])
-
     meta = {
         "generated_at": datetime.now(CST).isoformat(timespec="seconds"),
         "range": [min_ts or 0, max_ts or 0],
@@ -339,20 +321,14 @@ def build(pricing: dict, calls: list, bills: dict, db_sessions: dict, with_promp
             "sessions": "[sid, title, cwd, createdTs, device]",
             "requests": "[sessionIdx, reqId, ts, cacheHit, inputMiss, output, cacheWrite, officialCredit, apiCost, nCalls, creditSrc(1=bill 0=log), prompt]",
             "calls": "[reqIdx, ts, modelIdx, cacheHit, inputMiss, output, cacheWrite, logCredit, apiCost, peakFlag, kind, allocatedCredit]",
-            "credit_fit": "[modelIdx, n, creditPerM_hit, creditPerM_miss, creditPerM_output, r2, totalCredit]",
             "price_segments": "input_miss / output / cache_hit / cache_write, 单位 元每百万 tokens",
         },
-        "plans": pricing["plans"],
-        "plan_notes": pricing["plan_notes"],
-        "plan_source": pricing["plan_source"],
-        "default_plan": pricing["default_plan"],
         "pricing_notes": pricing["notes"],
         "price_unit": pricing["price_unit"],
         "models": model_rows,
         "sessions": session_rows,
         "requests": request_rows,
         "calls": call_rows,
-        "credit_fit": fit_table,
         "kind_labels": KIND_LABELS + ["其他"],
     }
 

@@ -44,7 +44,7 @@ button,select,input{font:inherit;color:inherit}
 .hero h1{font-size:34px;line-height:1.25;letter-spacing:-.035em;margin:30px 0 8px;font-weight:750}
 .hero .sub{color:var(--muted);margin:0 0 22px;font-size:13.5px}
 .hero .sub b{color:var(--text);font-weight:650}
-.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;padding-bottom:26px}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;padding-bottom:26px}
 .kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:15px 16px;box-shadow:var(--shadow)}
 .kpi .lbl{font-size:11.5px;color:var(--muted);display:flex;align-items:center;gap:6px;margin-bottom:7px}
 .kpi .lbl .dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
@@ -175,22 +175,19 @@ td .sub{display:block;font-size:10.5px;color:var(--faint);max-width:310px;overfl
 .detail-grid .b .v{font-size:15px;font-weight:700;margin:3px 0}
 .detail-grid .b .p{font-size:10.5px;color:var(--faint)}
 
-/* ---------- pricing ---------- */
-.compare{display:grid;grid-template-columns:1fr 1fr auto 1fr;gap:14px;align-items:stretch}
-.pricebox{border:1px solid var(--border);border-radius:12px;padding:18px;background:var(--surface2)}
-.pricebox.in{background:linear-gradient(150deg,#f5f4ff,#fff);border-color:#dcd8ff}
-.pricebox.out{background:linear-gradient(150deg,#fff8ed,#fff);border-color:#f3e2c4}
-.pricebox .t{font-size:12px;font-weight:700;color:var(--muted);margin-bottom:4px}
-.pricebox .big{font-size:30px;font-weight:780;letter-spacing:-.035em;line-height:1.2}
-.pricebox.in .big{color:var(--accent)}
-.pricebox.out .big{color:var(--amber)}
-.pricebox .fm{font-size:11.5px;color:var(--muted);margin-top:9px;line-height:1.7}
-.pricebox .fm code{background:#fff;border:1px solid var(--border);border-radius:4px;padding:1px 5px;font-size:11px}
-.vs{display:grid;place-items:center;font-size:12px;font-weight:750;color:var(--faint);text-align:center;line-height:1.5}
-.vs b{font-size:22px;color:var(--text);display:block;letter-spacing:-.03em}
-.verdict{margin-top:14px;padding:13px 16px;border-radius:10px;background:var(--teal2);
-  border:1px solid #c9e9e3;color:#0b6e64;font-size:12.5px;line-height:1.75}
-.verdict b{font-weight:750}
+/* ---------- pricing (API 直购价口径) ---------- */
+.price-hero{display:flex;align-items:center;gap:20px;flex-wrap:wrap;
+  border:1px solid #f3e2c4;border-radius:12px;background:linear-gradient(150deg,#fff8ed,#fff);padding:20px 22px}
+.price-hero .amount{font-size:38px;font-weight:780;letter-spacing:-.04em;color:var(--amber);line-height:1.1}
+.price-hero .pdesc{font-size:12.5px;color:var(--muted);line-height:1.85}
+.price-hero .pdesc code{background:#fff;border:1px solid var(--border);border-radius:4px;padding:1px 5px;font-size:11px}
+.price-hero .scope{margin-left:auto;font-size:11.5px;color:var(--faint)}
+.segbar{display:flex;height:13px;border-radius:7px;overflow:hidden;margin:12px 0 14px;background:var(--surface2)}
+.segbar span{height:100%}
+.seglegend{display:flex;flex-wrap:wrap;gap:9px 18px}
+.seglegend .it{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted)}
+.seglegend .it i{width:9px;height:9px;border-radius:2px;display:inline-block}
+.seglegend .it b{color:var(--text);font-weight:700}
 .note{padding:12px 15px;border-left:3px solid var(--amber);background:var(--amber2);
   border-radius:0 8px 8px 0;font-size:12px;color:#7a5316;line-height:1.75;margin:14px 0}
 .note b{font-weight:750}
@@ -224,10 +221,8 @@ footer{border-top:1px solid var(--border);padding:22px 0 40px;color:var(--faint)
 #tip .row span:last-child{font-weight:650}
 
 @media(max-width:1100px){
-  .kpis{grid-template-columns:repeat(3,1fr)}
+  .kpis{grid-template-columns:repeat(2,1fr)}
   .grid2,.grid2b,.autogrid{grid-template-columns:1fr}
-  .compare{grid-template-columns:1fr;gap:10px}
-  .vs{padding:4px 0}
   .detail-grid{grid-template-columns:repeat(2,1fr)}
 }
 @media(max-width:640px){
@@ -245,22 +240,16 @@ footer{border-top:1px solid var(--border);padding:22px 0 40px;color:var(--faint)
     <div class="hero-top">
       <div class="brand">
         <span class="mark">◈</span>
-        <span>workbuddy-token-dashboard<small>本地用量 · 官方积分 · 双口径成本</small></span>
+        <span>workbuddy-token-dashboard<small>本地用量 · 官方积分 · API 直购价</small></span>
       </div>
       <div class="hero-actions">
-        <label class="ctl">套餐
-          <select id="planSel"></select>
-        </label>
         <label class="ctl" id="deviceCtl" style="display:none">设备
           <select id="deviceSel"></select>
-        </label>
-        <label class="ctl" title="只用基础积分计算，排除限时加赠积分">
-          <input type="checkbox" id="baseOnly"> 仅基础积分口径
         </label>
         <button class="btn" id="exportBtn">导出 CSV</button>
       </div>
     </div>
-    <h1>把每一次请求，算到分。</h1>
+    <h1>把每一次请求，算清用量与花费。</h1>
     <p class="sub">数据源：<b>WorkBuddy 本地会话日志 + session_usage 官方积分账单</b>　·　
       生成于 <b id="builtAt"></b>　·　覆盖 <b id="rangeTxt"></b>　·　当前视图 <b id="scopeTxt"></b></p>
     <div class="kpis" id="kpis"></div>
@@ -271,7 +260,7 @@ footer{border-top:1px solid var(--border);padding:22px 0 40px;color:var(--faint)
   <a href="#s1">01 · 热力图</a>
   <a href="#s2">02 · 模型分布</a>
   <a href="#s3">03 · 三级下钻</a>
-  <a href="#s4">04 · 价格口径</a>
+  <a href="#s4">04 · API 直购价</a>
   <a href="#s5">05 · 打开方式</a>
   <span class="spacer"></span>
   <span class="built" id="navMeta"></span>
@@ -351,59 +340,49 @@ footer{border-top:1px solid var(--border);padding:22px 0 40px;color:var(--faint)
 
   <!-- 04 -->
   <section id="s4">
-    <div class="sec-head"><span class="eyebrow">04 / Pricing</span><h2>积分口径与两种价格的对比</h2>
-      <span class="desc">平台内（积分折算） vs 平台外（厂商 API 牌价）</span></div>
+    <div class="sec-head"><span class="eyebrow">04 / Pricing</span><h2>API 直购价怎么算</h2>
+      <span class="desc">四段 token × 各模型厂商牌价，逐条调用分别计价</span></div>
 
     <div class="card" style="margin-bottom:16px">
-      <div class="card-head"><h3>同样这些 token，两条购买路径各要多少钱</h3>
-        <span class="hint" id="priceScope"></span></div>
-      <div class="compare">
-        <div class="pricebox in">
-          <div class="t">平台内 · 消耗金额估算</div>
-          <div class="big" id="inCost">—</div>
-          <div class="fm"><code>官方实际积分 × 每积分人民币价值</code><br>
-            <span id="inFormula"></span></div>
+      <div class="price-hero">
+        <div>
+          <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px">当前视图 · 同用量 API 直购价</div>
+          <div class="amount num" id="outCost">—</div>
         </div>
-        <div class="vs">对比<b id="ratioBig">—</b><span id="ratioTxt">倍</span></div>
-        <div class="pricebox out">
-          <div class="t">平台外 · 同用量 API 直购价</div>
-          <div class="big" id="outCost">—</div>
-          <div class="fm"><code>Σ 四段 token × 对应模型厂商牌价</code><br>
-            未命中输入 / 输出 / 缓存命中 / 缓存写入，逐条请求分别计价。</div>
+        <div class="pdesc">
+          <code>Σ 四段 token × 对应模型厂商牌价</code><br>
+          未命中输入 / 输出 / 缓存命中 / 缓存写入，按调用时间戳选择峰时或谷时单价，逐条累加。
         </div>
+        <div class="scope" id="priceScope"></div>
       </div>
-      <div class="verdict" id="verdict"></div>
       <div class="formula">
-        <span class="c">消耗金额估算</span> = <span class="g">官方积分消耗</span> × ( 套餐月价 ÷ 每月实得积分 )<br>
-        <span class="y">同用量 API 直购价</span> = Σ<sub>每条调用</sub> ( 未命中输入×P<sub>miss</sub> + 输出×P<sub>out</sub> + 缓存命中×P<sub>hit</sub> + 缓存写入×P<sub>write</sub> ) ÷ 1,000,000
+        <span class="y">API 直购价</span> = Σ<sub>每条调用</sub> ( 未命中输入×P<sub>miss</sub> + 输出×P<sub>out</sub> + 缓存命中×P<sub>hit</sub> + 缓存写入×P<sub>write</sub> ) ÷ 1,000,000<br>
+        P 取自 <span class="mono">config/pricing.json</span>，单位 元 / 百万 tokens；带峰谷标签的模型按调用时间戳选价。
       </div>
+      <div class="note" id="coverNote"></div>
       <div class="note" id="creditNote"></div>
       <div class="note" id="multiNote" style="display:none"></div>
       <details class="meth">
-        <summary>为什么积分不按「模型倍率」折算？以及本看板多做了什么</summary>
+        <summary>口径说明与已知局限</summary>
         <ul>
-          <li>官方《积分》文档只说明「消耗量与模型定价和任务复杂度有关」，未公开逐模型的四段积分单价；客户端模型面板显示的 x0.06 / x0.79 等倍率会随活动、峰谷时段变动，不能当计费依据。</li>
-          <li>因此金额估算走的是<b>官方账单积分 → 套餐单价折算</b>这条可验证的路径，而不是猜倍率。</li>
-          <li>本看板额外做了一步：用本地逐调用账单做最小二乘，反推每个模型的<b>实测积分单价（积分 / 百万 token，分缓存命中 / 未命中输入 / 输出三段）</b>。多数模型 R²≈1，说明积分确实按四段 token 线性计价，见下表「账单反推积分单价」。</li>
-          <li>腾讯云公开的「Credits/Million tokens」表属于企业 / 国际 Token Plan 口径，与国内个人版积分反算相差 3–15 倍，<b>本项目不采用</b>。</li>
+          <li><b>不做积分折人民币，也不按模型倍率换算。</b>官方《积分》文档未公开逐模型四段积分单价，客户端显示的倍率会随活动与峰谷变动，不是计费依据；本看板不把积分乘任何单价。</li>
+          <li>积分在此只作为<b>官方账单的用量指标</b>展示：优先取 <span class="mono">workbuddy.db :: session_usage.credit_json</span>，缺失时回退逐调用 <span class="mono">rawUsage.credit</span>，并按调用权重分摊回每条记录。</li>
+          <li>限免模型（hy4-free / hy3 等）积分为 0，但厂商按量牌价照常计入 API 直购价——两套口径独立，不要互相折算。</li>
+          <li>缓存写入多数厂商不单列收费，本表按未命中输入同价保守计入；厂商调价、限免活动、赠送额度均不逐条建模。金额是按公开牌价的估算，<b>不是账单</b>。</li>
         </ul>
       </details>
     </div>
 
     <div class="grid2b" style="margin-bottom:16px">
       <div class="card">
-        <div class="card-head"><h3>WorkBuddy 套餐与每积分价值</h3><a id="planSrc" href="#" target="_blank">官方定价 ↗</a></div>
-        <div class="tablewrap"><table class="small-table" id="planTable"></table></div>
-        <div class="note" style="margin-bottom:0" id="planNote"></div>
+        <div class="card-head"><h3>按模型的 API 花费</h3><span class="hint">当前筛选 · TOP 8</span></div>
+        <div id="costByModel"></div>
       </div>
       <div class="card">
-        <div class="card-head"><h3>账单反推积分单价</h3><span class="hint">实测拟合，非官方公布</span></div>
-        <div class="tablewrap"><table class="small-table" id="fitTable"></table></div>
-        <div class="note" style="margin-bottom:0">
-          用 <span class="mono">credit = a·缓存命中 + b·未命中输入 + c·输出</span>（token 单位：百万）对每次调用做最小二乘。
-          R² 接近 1 说明线性计价成立；DeepSeek 因峰谷分时定价与历史调价，R² 偏低。
-          免费 / 限免模型的 credit=0 调用不参与拟合。
-        </div>
+        <div class="card-head"><h3>四段 token 花费构成</h3><span class="hint">当前筛选</span></div>
+        <div class="segbar" id="costSegBar"></div>
+        <div class="seglegend" id="costSegLegend"></div>
+        <div class="note" style="margin-bottom:0" id="costSegNote"></div>
       </div>
     </div>
 
@@ -502,7 +481,7 @@ python scripts/install.py</pre>
 
 <footer><div class="wrap">
   workbuddy-token-dashboard · 数据来自本机 WorkBuddy，未经任何外部上传（除非你主动把 HTML 放进资料库）。<br>
-  金额为按公开牌价与套餐价的估算，不构成账单或采购依据。价格快照与来源见 04 节。
+  金额为按各厂商公开牌价的估算，不构成账单或采购依据。价格快照与来源见 04 节；积分仅作官方用量指标，不折算人民币。
 </div></footer>
 
 <div id="tip"></div>
@@ -556,13 +535,9 @@ const MULTI=DEVICES.length>1;
 const state={
   month: months[months.length-1], day:null, hour:null, model:null, device:null,
   sessionIdx:null, requestIdx:null, metric:'tokens', gran:'day',
-  plan:D.default_plan, baseOnly:false, search:'', sortKey:null, sortDir:-1,
+  search:'', sortKey:null, sortDir:-1,
   openCall:null
 };
-
-function planObj(){ return D.plans.find(p=>p.id===state.plan) || D.plans[0]; }
-function perCredit(){ const p=planObj(); return p.monthly_price / (state.baseOnly ? p.credits_base : p.credits); }
-const pc = perCredit;
 
 /* ---------- filtering ---------- */
 function filterCalls(o){
@@ -608,15 +583,11 @@ document.addEventListener('mouseout', e=>{ if(e.target && e.target.closest && !e
 /* ---------- KPI ---------- */
 function renderKpis(){
   const a=agg(filterCalls({}));
-  const inC=a.credit*pc(), outC=a.cost;
-  const ratio = inC>0 ? outC/inC : 0;
   const items=[
     {l:'总 Token',v:tok(a.total),f:fmtSeg(a),c:''},
-    {l:'官方实际积分',v:cr(a.credit),f:a.n.toLocaleString('zh-CN')+' 次 API 调用',c:''},
+    {l:'官方实际积分',v:cr(a.credit),f:a.n.toLocaleString('zh-CN')+' 次 API 调用 · 仅作用量指标',c:''},
     {l:'缓存命中率',v:pct(a.hitRate),f:'命中 '+tok(a.hit)+' / 输入 '+tok(a.hit+a.miss),c:''},
-    {l:'平台内消耗估算',v:cny(inC),f:'积分 × '+cny4(pc())+'/积分',c:'hl'},
-    {l:'同用量 API 直购价',v:cny(outC),f:'四段 token × 厂商牌价',c:''},
-    {l:'平台外 / 平台内',v:ratio?ratio.toFixed(2)+'×':'—',f:ratio>1?'平台内更便宜':'平台外更便宜',c:'warn'},
+    {l:'同用量 API 直购价',v:cny(a.cost),f:'四段 token × 厂商牌价 · 人民币',c:'hl'},
   ];
   $('#kpis').innerHTML=items.map(x=>`<div class="kpi ${x.c}"><div class="lbl"><span class="dot"></span>${x.l}</div>
     <div class="val num">${x.v}</div><div class="foot">${x.f}</div></div>`).join('');
@@ -703,7 +674,7 @@ function renderSide(){
   $('#sideHint').textContent=scopeLabel()+(state.day?' · '+state.day:'')+(state.hour!==null?' · '+state.hour+':00':'');
   const rows=[
     ['活跃天数',days+' 天'],['会话数',sess],['用户请求数',reqs],['API 调用数',nf(a.n)],
-    ['官方积分',cr(a.credit)],['平台内估算',cny(a.credit*pc())],['API 直购价',cny(a.cost)],
+    ['官方积分',cr(a.credit)],['API 直购价',cny(a.cost)],
     ['单日峰值',peakDay(ids)],
   ];
   $('#sideStats').innerHTML=rows.map(r=>`<div class="side-stat"><span class="k">${r[0]}</span><span class="v num">${r[1]}</span></div>`).join('');
@@ -968,7 +939,6 @@ function columnsFor(lv){
     {t:'未命中 / 输出 / 命中',k:null,r:true,f:r=>`<span class="num" style="color:var(--muted)">${tok(r.a.miss)} / ${tok(r.a.out)} / ${tok(r.a.hit)}</span>`},
     {t:'缓存命中率',k:'hitRate',r:true,f:r=>pct(r.a.hitRate)},
     {t:'积分',k:'credit',r:true,f:r=>cr(r.a.credit)},
-    {t:'平台内 ¥',k:'in',r:true,f:r=>cny(r.a.credit*pc())},
     {t:'API ¥',k:'cost',r:true,f:r=>cny(r.a.cost)},
   ];
   if(lv===0) base.splice(2,0,{t:'请求',k:'req',r:true,f:r=>nf(r.meta.req||0)});
@@ -987,7 +957,7 @@ function columnsFor(lv){
 }
 function sortValue(r,k){
   if(k==='n')return r.a.n; if(k==='total')return r.a.total; if(k==='credit')return r.a.credit;
-  if(k==='cost')return r.a.cost; if(k==='in')return r.a.credit*pc(); if(k==='hitRate')return r.a.hitRate;
+  if(k==='cost')return r.a.cost; if(k==='hitRate')return r.a.hitRate;
   if(k==='req')return r.meta.req||0; return 0;
 }
 function renderCallDetail(){
@@ -1005,31 +975,48 @@ function renderCallDetail(){
   box.innerHTML=`<div class="detail"><h4>单次 API 调用 · ${fullTime(c[C_TS])} · ${esc(m[M_DISPLAY])} ${c[C_PEAK]?'（峰时）':'（谷时）'}</h4>
     <div class="detail-grid">${blocks}</div>
     <div style="margin-top:11px;font-size:12px;color:var(--muted)">
-      本次调用：官方分摊积分 <b>${cr(c[C_CR])}</b> → 平台内 ${cny(c[C_CR]*pc())}　·　
+      本次调用：官方分摊积分 <b>${cr(c[C_CR])}</b>（仅作用量指标）　·　
       API 直购价合计 <b>${cny4(c[C_COST])}</b>　·　
       <span class="tag ${D.requests[c[C_REQ]][R_SRC]?'bill':'log'}">${D.requests[c[C_REQ]][R_SRC]?'请求积分来自官方账单':'请求积分来自日志回退'}</span>
     </div></div>`;
 }
 
-/* ---------- pricing section ---------- */
+/* ---------- pricing section (仅 API 直购价) ---------- */
+const SEG_COLORS=['#4f46e5','#f0a44b','#39a9a0','#b6bdcc'];
+const SEG_NAMES=['未命中输入','输出','缓存命中','缓存写入'];
+
 function renderPricing(){
-  const a=agg(filterCalls({}));
-  const inC=a.credit*pc(), outC=a.cost;
-  $('#inCost').textContent=cny(inC); $('#outCost').textContent=cny(outC);
-  const p=planObj();
-  $('#inFormula').textContent=`${cr(a.credit)} 积分 × ( ${p.monthly_price} 元/月 ÷ ${state.baseOnly?p.credits_base:p.credits} 积分 ) = ${cny(inC)}`;
-  const ratio=inC>0?outC/inC:0;
-  $('#ratioBig').textContent=ratio?ratio.toFixed(2)+'×':'—';
-  $('#ratioTxt').textContent=ratio>1?'平台外更贵':'平台内更贵';
+  const ids=filterCalls({});
+  const a=agg(ids);
+  $('#outCost').textContent=cny(a.cost);
   $('#priceScope').textContent='当前筛选：'+scopeLabel()+(state.day?' / '+state.day:'')+(state.hour!==null?' / '+state.hour+':00':'');
-  $('#verdict').innerHTML = inC<=0
-    ? '当前筛选下的官方积分为 0（多为限免模型），平台内估算金额为 0，无法做有效比价。'
-    : (ratio>1
-      ? `在当前视图与 <b>${p.name} · ${p.billing}</b> 口径下，同样这些 token 走 WorkBuddy 积分约 <b>${cny(inC)}</b>，直接向厂商买 API 约 <b>${cny(outC)}</b>，平台外贵 <b>${ratio.toFixed(2)} 倍</b>。注意这是「按套餐包月价折算」的成本，含平台补贴与赠送积分；若改按基础积分口径，结论可能变化。`
-      : `在当前视图与 <b>${p.name} · ${p.billing}</b> 口径下，平台内约 <b>${cny(inC)}</b>，平台外约 <b>${cny(outC)}</b>，平台内反而更贵 <b>${(1/ratio).toFixed(2)} 倍</b>。这通常说明套餐档位不匹配你的实际用量，或使用了大量限免/低价模型。`);
+
+  // 按模型的 API 花费 TOP 8
+  const byModel={};
+  for(const i of ids){ const k=D.calls[i][C_MODEL]; byModel[k]=(byModel[k]||0)+D.calls[i][C_COST]; }
+  const top=Object.entries(byModel).sort((x,y)=>y[1]-x[1]).slice(0,8);
+  const mx=Math.max(1,...top.map(x=>x[1]));
+  $('#costByModel').innerHTML=top.map(([k,v])=>`<div class="mbar">
+    <span class="nm" title="${esc(D.models[k][M_DISPLAY])}">${esc(D.models[k][M_DISPLAY])}</span>
+    <span class="tr"><span class="fl" style="width:${Math.max(2,v/mx*100)}%;background:${modelColor(k)}"></span></span>
+    <span class="vv num">${cny(v)}</span></div>`).join('') || '<div class="hint">无数据</div>';
+
+  // 四段 token 各自贡献多少钱：用同一份牌价逐段展开
+  const seg=[0,0,0,0];
+  for(const i of ids){
+    const c=D.calls[i], m=D.models[c[C_MODEL]];
+    const p=(m[M_TOU] && c[C_PEAK] && m[M_PEAK]) ? m[M_PEAK] : m[M_OFF];
+    if(!p) continue;
+    seg[0]+=c[C_MISS]*p[0]/1e6; seg[1]+=c[C_OUT]*p[1]/1e6;
+    seg[2]+=c[C_HIT]*p[2]/1e6; seg[3]+=c[C_WRITE]*p[3]/1e6;
+  }
+  const segSum=seg.reduce((x,y)=>x+y,0);
+  $('#costSegBar').innerHTML=seg.map((v,j)=>v>0?`<span style="width:${v/segSum*100}%;background:${SEG_COLORS[j]}" title="${SEG_NAMES[j]} ${cny(v)}"></span>`:'').join('');
+  $('#costSegLegend').innerHTML=seg.map((v,j)=>`<span class="it"><i style="background:${SEG_COLORS[j]}"></i>${SEG_NAMES[j]} <b>${cny(v)}</b> <span style="color:var(--faint)">${pct(segSum?v/segSum:0)}</span></span>`).join('');
+  $('#costSegNote').innerHTML=`四段合计 <b>${cny(segSum)}</b>，与逐调用累加的 API 直购价 <b>${cny(a.cost)}</b> 出自同一份牌价。缓存写入在多数厂商不单列收费，这里按未命中输入同价保守计入。`;
 
   const m=D.meta;
-  $('#creditNote').innerHTML=`<b>积分以官方账单为准。</b>本次采集共 ${nf(m.n_requests)} 个用户请求，其中 <b>${m.bill_requests}</b> 个在 <span class="mono">credit_json</span> 有官方账单；
+  $('#creditNote').innerHTML=`<b>积分只是官方用量指标，不参与金额计算。</b>本次采集共 ${nf(m.n_requests)} 个用户请求，其中 <b>${m.bill_requests}</b> 个在 <span class="mono">credit_json</span> 有官方账单；
     全部请求账单积分合计 <b>${cr(m.total_credit)}</b>，而逐调用日志里的 <span class="mono">rawUsage.credit</span> 累计仅 <b>${cr(m.total_log_credit)}</b>，
     差 <b>${pct(m.total_credit>0?(m.total_credit-m.total_log_credit)/m.total_credit:0)}</b>。
     差额来自账单的延迟结算 / 未落盘调用；看板把账单积分按调用权重分摊回每条记录，保证任何下钻层级的积分加总都等于官方总额。`;
@@ -1037,21 +1024,8 @@ function renderPricing(){
     $('#multiNote').style.display='';
     $('#multiNote').innerHTML=`<b>多设备合并口径，别当账单用。</b>本看板汇总了 ${DEVICES.length} 台设备（${DEVICES.map(esc).join('、')}）的本地导出包。
       积分是各设备本地 <span class="mono">credit_json</span> 之和，<b>不等于账号云端账单</b>：某台设备日志被清理、导出周期不全、或请求发生在网页/移动端时都会漏记。
-      要校总账，用官网「个人中心 → 套餐与用量 → 积分消耗明细」导出的数据对照；那个是账号级、天然跨设备，但只有积分、没有四段 token。`;
+      要校总账，用官网「个人中心 → 积分消耗明细」导出的数据对照；那个是账号级的，但只有积分、没有四段 token。`;
   } else $('#multiNote').style.display='none';
-
-  $('#planTable').innerHTML=`<thead><tr><th>套餐</th><th>计费</th><th class="r">月价</th><th class="r">实得积分</th><th class="r">¥/积分</th><th class="r">基础口径 ¥/积分</th></tr></thead><tbody>`+
-    D.plans.map(x=>`<tr${x.id===state.plan?' style="background:var(--accent2)"':''}><td><b>${esc(x.name)}</b></td><td>${esc(x.billing)}</td>
-      <td class="r">${x.monthly_price}</td><td class="r">${nf(x.credits)}</td>
-      <td class="r"><b>${cny4(x.monthly_price/x.credits)}</b></td><td class="r">${cny4(x.monthly_price/x.credits_base)}</td></tr>`).join('')+'</tbody>';
-  $('#planSrc').href=D.plan_source;
-  $('#planNote').innerHTML=D.plan_notes.map(x=>'· '+esc(x)).join('<br>');
-
-  const fit=D.credit_fit.slice().sort((a,b)=>b[1]-a[1]);
-  $('#fitTable').innerHTML=`<thead><tr><th>模型</th><th class="r">样本</th><th class="r">缓存命中</th><th class="r">未命中输入</th><th class="r">输出</th><th class="r">R²</th></tr></thead><tbody>`+
-    fit.map(r=>`<tr><td><span style="display:inline-flex;align-items:center;gap:6px"><i style="width:8px;height:8px;border-radius:2px;background:${modelColor(r[0])}"></i>${esc(D.models[r[0]][M_DISPLAY])}</span></td>
-      <td class="r">${nf(r[1])}</td><td class="r">${r[2]}</td><td class="r">${r[3]}</td><td class="r">${r[4]}</td>
-      <td class="r"><span class="tag ${r[5]>.95?'ok':'no'}">${r[5].toFixed(3)}</span></td></tr>`).join('')+'</tbody>';
 
   $('#priceTable').innerHTML=`<thead><tr><th>模型</th><th>厂商</th><th class="r">未命中输入</th><th class="r">输出</th><th class="r">缓存命中</th><th class="r">缓存写入</th><th>核验</th><th>来源</th></tr></thead><tbody>`+
     D.models.map((m,i)=>{
@@ -1079,16 +1053,12 @@ function renderAll(){
   $('#scopeTxt').textContent=scopeLabel()+(state.device?' · '+state.device:'')+(MULTI?`（${DEVICES.length} 台设备）`:'');
 }
 function initControls(){
-  $('#planSel').innerHTML=D.plans.map(p=>`<option value="${p.id}">${esc(p.name)} · ${esc(p.billing)}（${p.monthly_price}元/${nf(p.credits)}积分）</option>`).join('');
-  $('#planSel').value=state.plan;
-  $('#planSel').addEventListener('change',e=>{state.plan=e.target.value;renderAll();});
   if(MULTI){
     $('#deviceCtl').style.display='';
     $('#deviceSel').innerHTML='<option value="">全部设备</option>'+
       DEVICES.map(d=>`<option value="${esc(d)}">${esc(d)}</option>`).join('');
     $('#deviceSel').addEventListener('change',e=>{state.device=e.target.value||null;renderAll();});
   }
-  $('#baseOnly').addEventListener('change',e=>{state.baseOnly=e.target.checked;renderAll();});
   $('#prevM').addEventListener('click',()=>{const i=months.indexOf(state.month);if(i>0){state.month=months[i-1];resetDrill();renderAll();}});
   $('#nextM').addEventListener('click',()=>{const i=months.indexOf(state.month);if(i>=0&&i<months.length-1){state.month=months[i+1];resetDrill();renderAll();}});
   $('#allM').addEventListener('click',()=>{state.month=state.month==='ALL'?months[months.length-1]:'ALL';resetDrill();renderAll();});
@@ -1110,11 +1080,11 @@ function resetDrill(){ state.day=null;state.hour=null;state.model=null;state.dev
   const ds=$('#deviceSel'); if(ds) ds.value=''; }
 
 function exportCsv(){
-  const rows=[['日期','设备','会话','请求ID','时间','模型','类型','缓存命中','未命中输入','输出','缓存写入','官方分摊积分','平台内人民币','API直购价人民币','峰谷']];
+  const rows=[['日期','设备','会话','请求ID','时间','模型','类型','缓存命中','未命中输入','输出','缓存写入','官方分摊积分','API直购价人民币','峰谷']];
   for(const i of drillIndices()){
     const c=D.calls[i], r=D.requests[c[C_REQ]], s=D.sessions[r[R_SID]], m=D.models[c[C_MODEL]];
     rows.push([cDay[i],cDev[i],s[1],r[R_ID],fullTime(c[C_TS]),m[M_ID],D.kind_labels[c[C_KIND]]||'其他',
-      c[C_HIT],c[C_MISS],c[C_OUT],c[C_WRITE],c[C_CR].toFixed(6),(c[C_CR]*pc()).toFixed(6),c[C_COST].toFixed(8),c[C_PEAK]?'峰时':'谷时']);
+      c[C_HIT],c[C_MISS],c[C_OUT],c[C_WRITE],c[C_CR].toFixed(6),c[C_COST].toFixed(8),c[C_PEAK]?'峰时':'谷时']);
   }
   const csv='\uFEFF'+rows.map(r=>r.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(',')).join('\r\n');
   const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
