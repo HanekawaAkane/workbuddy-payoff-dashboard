@@ -160,6 +160,19 @@ publish_bundle.py（每天 9:00） ──▶ WorkBuddy Token 便携包/  ──�
 
 **限制**：资料库 drive 通道只认部分文件类型——`.json` 可以，`.zip` / `.html` 会被拒（「该文件类型不走网盘上传」）。所以每日同步走 `.json`，部署包 ZIP 仍走一次性下载页 / 附件。资料库凭据由 WorkBuddy 会话环境提供，在普通 CMD 里跑可能因缺环境变量失败，此时让 Agent 代为上传。
 
+### 命令行统计远端数据
+
+`scripts/remote_stats.py` 从资料库同步下来的便携包做统计，**口径与看板完全一致**（复用 `collect.py` 的四段 token / 官方积分 / 两种价格计算，不另算一套）：
+
+```bash
+python scripts/remote_stats.py --refresh --json output/remote-stats.json --csv output/remote-stats.csv
+python scripts/remote_stats.py --refresh --with-local   # 连本机一起统计
+```
+
+输出每台设备的调用数、缓存命中 / 未命中输入 / 输出 / 缓存写入、官方积分、平台内折算、API 直购价、模型 TOP 8、最近 10 天、峰时占比；`--json` / `--csv` 可导出给别的工具。默认只统计资料库远端包，`--refresh` 会先拉最新。
+
+脚本带**同源检测**：把 uid 去掉设备前缀后与本机比对，重合超过 50% 会明确警告「这是本机重复导出，合并会双计」，避免把一份数据当成两台设备。
+
 ### 两台都在线：设备间直连（备选）
 
 同步盘是「被动落盘」。想要**只要两台在线就自动把对端明细拿过来**，也可以直接用设备间直连拉取——不依赖 WorkBuddy 私有 API，也不依赖任何云盘；代价是两台必须同时在线且网络互通。
@@ -335,6 +348,7 @@ python scripts/run.py --no-prompts
 │   ├── library_io.py            封装资料库内置脚本（路径探测 / 列举 / 上传 / 下载）
 │   ├── publish_bundle.py        对端一键：导出便携包 + 原地覆盖资料库固定节点
 │   ├── library_sync.py          主设备：列举资料库文件夹 → 下载 → 校验 → 落盘
+│   ├── remote_stats.py          命令行统计远端包（文本 / JSON / CSV，含同源检测）
 │   ├── build_deploy_kit.py      打包另一台设备用的 ZIP（注入 folder_id，不含本机数据）
 │   ├── build_download_page.py   生成内嵌 ZIP 的资料库下载页（绕开 .zip 上传缺陷）
 │   ├── push_deploy_kit.py       一键：密钥→配置→打包→下载页→安全自检→对端命令

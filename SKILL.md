@@ -133,6 +133,9 @@ agent_created: true
 - `scripts/library_io.py` — 封装资料库内置脚本：路径探测、列举文件夹、新建/原地覆盖 drive 节点、下载
 - `scripts/publish_bundle.py` — 对端一键：导出无提示词便携包 + 原地覆盖资料库固定节点（自动化任务的执行内容）
 - `scripts/library_sync.py` — 主设备：列举资料库文件夹 → 下载 → 校验 schema/无提示词 → 落盘 bundles
+- `scripts/remote_stats.py` — 命令行统计远端包：`--refresh` 先拉资料库、`--with-local` 合并本机、`--json`/`--csv` 导出；复用 collect 口径，带 uid 同源检测（重合 >50% 会警告双计）。生成对外 HTML 时必须先确认不是重复数据。
+
+生成含远端数据的看板 HTML：`python scripts/run.py --sources output/bundles --with-local --no-prompts --no-latest --out output/token-dashboard-<时间戳>.html`，再用 `LibraryUpload` 上传这个 `.html`（`.zip` 通道不可用）。上传前一律 `--no-prompts`。
 - `deploy/PUBLISH-BUNDLE.bat` / `deploy/SETUP-AUTOMATION.txt` — 对端双击一键上传 / 创建每日自动化任务的可粘贴指令
 - `config/library-sync.example.json` — 资料库同步配置模板（folder_id / 轮询间隔 / 设备白名单）
 - `scripts/keep_online.py` — 常驻守护（node / main），子进程退出自动重启

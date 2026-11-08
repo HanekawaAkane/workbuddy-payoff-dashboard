@@ -525,5 +525,53 @@ class TestDeployKitInjection(unittest.TestCase):
                 self.assertIn("workbuddy-token-exporter/deploy/PUBLISH-BUNDLE.bat", names)
 
 
+class TestRemoteStats(unittest.TestCase):
+    """远端统计必须与看板共用 collect 口径，按设备/模型/日期正确分组。"""
+
+    @staticmethod
+    def _data():
+        t1, t2 = 1793930000000, 1794016400000  # 相隔一天
+        return {
+            "models": [["m1", "Model A", "v", False, "", "", None, None, False]],
+            "sessions": [["设备A::s", "a", "", 0, "设备A"], ["本机::s", "b", "", 0, "本机"]],
+            "requests": [[0, "r1", t1], [1, "r2", t2]],
+            "calls": [
+                [0, t1, 0, 100, 50, 20, 0, 0.1, 0.5, 1, 0, 0.2],
+                [1, t2, 0, 10, 5, 2, 0, 0.05, 0.1, 0, 0, 0.1],
+            ],
+            "plans": [{"id": "p", "name": "测试套餐", "monthly_price": 100,
+                       "credits": 1000, "credits_base": 1000}],
+            "default_plan": "p",
+            "meta": {"generated_at": "2026-11-08T12:00:00+08:00", "range": [t1, t2],
+                     "n_calls": 2, "n_sessions": 2, "n_requests": 2, "n_models": 1,
+                     "total_tokens": 187, "covered_tokens": 187,
+                     "total_credit": 0.3, "total_log_credit": 0.15,
+                     "total_api_cost": 0.6, "prompt_included": False},
+        }
+
+    def test_compute_groups_and_pricing(self):
+        import remote_stats  # noqa: PLC0415
+        st = remote_stats.compute(self._data())
+        self.assertEqual(sorted(st["per_device"]), ["本机", "设备A"])
+        self.assertEqual(st["per_device"]["设备A"]["calls"], 1)
+        self.assertEqual(st["per_device"]["设备A"]["tokens"], 170)
+        self.assertEqual(st["per_model"]["Model A"]["tokens"], 187)
+        self.assertEqual(len(st["per_day"]), 2)
+        self.assertAlmostEqual(st["plan"]["per_credit"], 0.1)
+        self.assertAlmostEqual(st["totals"]["in_cost"], 0.03)
+        self.assertEqual(st["totals"]["peak"], 1)
+        self.assertAlmostEqual(st["coverage"]["ratio"], 1.0)
+
+    def test_csv_export(self):
+        import remote_stats  # noqa: PLC0415
+        import csv  # noqa: PLC0415
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "stats.csv"
+            remote_stats.write_csv(remote_stats.compute(self._data()), p)
+            rows = list(csv.reader(p.open(encoding="utf-8-sig")))
+            self.assertEqual(rows[0][0], "scope")
+            self.assertTrue(any(r[0] == "device" and r[1] == "设备A" for r in rows[1:]))
+
+
 if __name__ == "__main__":
     unittest.main()
