@@ -1,10 +1,20 @@
-# workbuddy-token-dashboard
+# WorkBuddy Payoff Dashboard
+
+> 「得吃面板」— see the value your WorkBuddy sessions generated.<br>
+> 按厂商公开 API 牌价估算；这是用量价值，**不是账单，也不是收入**。
 
 WorkBuddy 的本地 token / 积分用量看板。一个离线单文件 HTML，日历热力图、按天 / 0–24 时模型分布、月→日→会话→请求→单次 API 调用的逐级下钻，以及按各模型厂商牌价计算的 **API 直购价**（含按模型花费、四段 token 花费构成）。
 
 **金额只走厂商 API 牌价这一条口径**；官方积分仅作为账单用量指标展示，不乘任何套餐单价、不折算人民币。同时是一个 WorkBuddy Skill，默认不创建定时任务。
 
-> 直接看效果：打开 [`examples/sample-dashboard.html`](examples/sample-dashboard.html)（合成数据，无真实用量）。
+> 直接看效果：打开 [`examples/sample-dashboard.html`](examples/sample-dashboard.html)（合成数据，无真实用量）。<br>
+> GitHub：**[HanekawaAkane/workbuddy-payoff-dashboard](https://github.com/HanekawaAkane/workbuddy-payoff-dashboard)**
+
+**名字**：没有直译成 `Earnings Dashboard`，那会让人误以为拿到了真实收入。`Payoff` 表达「这波用量究竟换回了多少价值」，更贴近「得吃」的情绪；看板金额始终是**按公开 API 牌价的估算，不是账单**。
+
+```bash
+git clone https://github.com/HanekawaAkane/workbuddy-payoff-dashboard.git
+```
 
 ---
 
@@ -47,12 +57,14 @@ python scripts/serve.py --open      # 打开 http://127.0.0.1:8765/
 ```
 
 - 服务只监听 `127.0.0.1`，只读本机文件，不联网、不写数据。
-- 每次请求都检查 WorkBuddy 日志/数据库的修改时间，**源数据变了就现场重新采集并渲染**。
-- 页面每 20 秒探一次，发现变化自动重载；也可点右下角「重新读取」强制重算。
-- `/api/data` 直接返回原始 JSON，方便别的工具接。
+- 每次请求都检查日志、数据库与 WAL 的完整结构指纹，能识别新增、追加、删除和同步盘回滚。
+- 进程内按文件缓存解析结果，**只重读变化的 JSONL / 便携包**；提示词匹配使用二分查找，不在每次刷新时重复解析全部历史。
+- 页面每 20 秒探一次，变化在后台重算，状态请求不会被采集阻塞；更新完成后自动重载，并保留月份、设备、模型和图表偏好。
+- 右下角可手动「重新读取」，失败会显示原因，不再静默打开旧缓存；`/api/status` 同时返回刷新状态、耗时与缓存统计。
+- `/api/data` 直接返回原始 JSON；HTML / JSON / 便携包在客户端支持时自动 gzip 压缩。
 - Ctrl+C 停止。把地址存成浏览器书签，就是你要的"一个固定入口"。
 
-`/api/status`、`/api/refresh`、`/api/data` 三个接口都可用。
+`/api/status`、`/api/refresh`、`/api/data` 三个接口都可用。缓存只存在当前服务进程内，重启服务会重新扫描一次。
 
 ### 其他命令
 
@@ -222,7 +234,7 @@ python scripts/keep_online.py --mode main
 python scripts/serve.py --peers config/peers.json --open
 ```
 
-Windows 双击 `start-peers.bat` 亦可。主设备后台线程每 60 秒拉一次：对端离线就跳过、上线后自动补上；拉到的包写进 `output/bundles/`，而服务本来就在监视这个目录，页面 20 秒内自动重载。整个过程不需要人工触发。
+Windows 双击 `start-peers.bat` 亦可。主设备后台线程每 60 秒拉一次：对端离线就跳过、上线后自动补上；传输支持 gzip，便携包内容未变时跳过落盘，变化时原子替换，避免无意义重算和读到半个 JSON。新包写进 `output/bundles/` 后，页面通常 20 秒内自动重载。整个过程不需要人工触发。
 
 网络可达这一步绕不过去，三选一：同一局域网填局域网 IP；异地用 Tailscale / ZeroTier 虚拟 IP；**别把 8765 直接映射到公网**。`config/peers.json` 含密钥，已在 `.gitignore` 里。
 
@@ -252,7 +264,7 @@ Windows 双击 `start-peers.bat` 亦可。主设备后台线程每 60 秒拉一�
 月整体 → 某天 → 某会话 → 某次请求 → 单次 API 调用（四段 token × 四段单价 → 小计）
 ```
 
-支持搜索、列排序、CSV 导出。单次调用详情会展开该模型的四段牌价与逐段金额。**多设备合并时**顶部出现设备下拉筛选，下钻表多一列「设备」（多台时显示数量），CSV 也带设备列。
+支持搜索（含请求 ID）、列排序、每页 50 / 100 / 200 行分页和 CSV 导出；搜索带防抖，单次调用展开只刷新表格，避免数万行同时渲染拖慢页面。月份可快速跳转，筛选与图表偏好在本地保留。单次调用详情会展开该模型的四段牌价与逐段金额。**多设备合并时**顶部出现设备下拉筛选，下钻表多一列「设备」（多台时显示数量），CSV 也带设备列。
 
 **04 · API 直购价**
 

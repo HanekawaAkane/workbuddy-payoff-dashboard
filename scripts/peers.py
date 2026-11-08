@@ -14,7 +14,9 @@ workbuddy-token-dashboard / peers.py
 """
 from __future__ import annotations
 import argparse
+import gzip
 import json
+import os
 import sys
 import urllib.parse
 import urllib.request
@@ -29,14 +31,24 @@ def fetch_bundle(url: str, token: str = "", timeout: float = 10.0) -> dict:
     base = url.rstrip("/")
     sep = "&" if "?" in base else "?"
     full = base + "/api/bundle" + (sep + "token=" + urllib.parse.quote(token) if token else "")
-    req = urllib.request.Request(full, headers={"User-Agent": "workbuddy-token-dashboard/1.0"})
+    req = urllib.request.Request(full, headers={"User-Agent": "workbuddy-token-dashboard/1.0",
+                                                "Accept-Encoding": "gzip"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
-        obj = json.loads(r.read().decode("utf-8"))
+        raw = r.read()
+        if r.headers.get("Content-Encoding", "").lower() == "gzip":
+            raw = gzip.decompress(raw)
+        obj = json.loads(raw.decode("utf-8"))
     if obj.get("schema") != collect.BUNDLE_SCHEMA:
         raise ValueError(f"对端返回的不是便携包（schema={obj.get('schema')!r}）：{base}")
     if not obj.get("device") or not isinstance(obj.get("calls"), list):
         raise ValueError(f"对端便携包字段不完整：{base}")
     return obj
+
+
+def same_bundle(a: dict, b: dict) -> bool:
+    """忽略 exported_at 比较内容，避免每轮轮询都触发主设备重算。"""
+    keys = ("schema", "device", "calls", "bills", "sessions", "prompts")
+    return all(a.get(k) == b.get(k) for k in keys)
 
 
 def sync_peers(cfg: dict, out_dir: Path, timeout: float = 10.0, log=print) -> list[Path]:
@@ -57,7 +69,16 @@ def sync_peers(cfg: dict, out_dir: Path, timeout: float = 10.0, log=print) -> li
         # 设备名做文件名，挡掉路径穿越
         safe = "".join(ch for ch in dev if ch.isalnum() or ch in "-_.").strip() or "peer"
         dest = out_dir / f"{safe}.json"
-        dest.write_text(json.dumps(obj, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+        if dest.exists():
+            try:
+                if same_bundle(json.loads(dest.read_text(encoding="utf-8")), obj):
+                    log(f"[SAME] {name} 内容无变化，跳过落盘")
+                    continue
+            except (OSError, ValueError, TypeError):
+                pass
+        tmp = dest.with_suffix(dest.suffix + ".tmp")
+        tmp.write_text(json.dumps(obj, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+        os.replace(tmp, dest)
         written.append(dest)
         log(f"[OK] {name} -> {safe}.json：{len(obj['calls']):,} 次调用，{dest.stat().st_size/1024:.0f} KB")
     return written

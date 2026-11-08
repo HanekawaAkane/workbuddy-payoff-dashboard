@@ -22,11 +22,13 @@ workbuddy-token-dashboard / collect.py
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
 import sqlite3
 import sys
+from bisect import bisect_right
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -165,6 +167,61 @@ def scan_jsonl(path: Path, bills: dict, with_prompts: bool):
     return sid, calls, user_msgs
 
 
+def _file_stamp(path: Path):
+    try:
+        st = path.stat()
+        return st.st_mtime_ns, st.st_size
+    except OSError:
+        return 0, 0
+
+
+class ScanCache:
+    """实时服务进程内的文件级缓存；只跳过未变化文件，不改变采集口径。
+
+    JSONL 解析结果按 with_prompts 分开缓存。返回调用记录副本，避免设备名前缀
+    等后续归一化修改缓存对象。数据库同时跟踪主库和 WAL，保证新积分能触发重读。
+    """
+
+    def __init__(self):
+        self._jsonl, self._db, self._bundles = {}, {}, {}
+        self.hits = self.misses = 0
+
+    def _get(self, store, key, stamp, loader, copy_result=None):
+        entry = store.get(key)
+        if entry and entry[0] == stamp:
+            self.hits += 1
+            result = entry[1]
+        else:
+            self.misses += 1
+            result = loader()
+            store[key] = (stamp, result)
+        return copy_result(result) if copy_result else result
+
+    @staticmethod
+    def _copy_scan(result):
+        sid, calls, messages = result
+        return sid, [dict(c) for c in calls], list(messages)
+
+    def scan_jsonl(self, path: Path, bills: dict, with_prompts: bool):
+        key = (str(path.resolve()), bool(with_prompts))
+        return self._get(self._jsonl, key, _file_stamp(path),
+                         lambda: scan_jsonl(path, bills, with_prompts), self._copy_scan)
+
+    def load_db(self, home: Path):
+        db = home / "workbuddy.db"
+        stamp = (_file_stamp(db), _file_stamp(home / "workbuddy.db-wal"))
+        return self._get(self._db, str(home.resolve()), stamp, lambda: load_db(home))
+
+    def load_bundle(self, path: Path):
+        return self._get(self._bundles, str(path.resolve()), _file_stamp(path),
+                         lambda: _load_bundle(path))
+
+    def stats(self):
+        return {"hits": self.hits, "misses": self.misses,
+                "jsonl_files": len(self._jsonl), "databases": len(self._db),
+                "bundles": len(self._bundles)}
+
+
 def least_squares(rows) -> list[float] | None:
     """rows: [(hit, miss, out, y)]，单位均为百万 tokens / 积分。"""
     n = 3
@@ -240,6 +297,7 @@ def build(pricing: dict, calls: list, bills: dict, db_sessions: dict, with_promp
     req_keys = sorted(groups, key=lambda k: min(calls[i]["ts"] for i in groups[k]))
     request_rows, call_rows = [], []
     req_call_rows: list[list[int]] = []
+    prompt_times = {sid: [x[0] for x in rows] for sid, rows in prompt_map.items()} if with_prompts else {}
     total_tokens = covered_tokens = 0
     total_credit = total_cost = 0.0
     total_log_credit = 0.0
@@ -292,11 +350,10 @@ def build(pricing: dict, calls: list, bills: dict, db_sessions: dict, with_promp
         req_call_rows.append(req_rows)
         prompt = ""
         if with_prompts:
-            for ts, txt in prompt_map.get(sid, []):
-                if ts <= first_ts + 2000:
-                    prompt = txt
-                else:
-                    break
+            rows = prompt_map.get(sid, [])
+            pos = bisect_right(prompt_times.get(sid, []), first_ts + 2000) - 1
+            if pos >= 0:
+                prompt = rows[pos][1]
         request_rows.append([
             session_index[sid], reqid, first_ts, hit, miss, out, write,
             round(credit, 6), round(cost, 8), len(idxs), src, prompt,
@@ -368,17 +425,52 @@ def path_signature(paths) -> float:
     return latest
 
 
+def path_fingerprint(paths) -> str:
+    """数据源结构指纹：能发现删除、旧时间戳替换和非最新文件的变化。
+
+    path_signature 只保留给兼容入口；实时服务使用这个完整指纹，避免仅比较
+    “最大 mtime”时漏掉文件删除或同步盘回滚。
+    """
+    digest = hashlib.sha256()
+    seen = set()
+
+    def add(path: Path):
+        key = os.path.normcase(str(path.resolve()))
+        if key in seen:
+            return
+        seen.add(key)
+        digest.update(key.encode("utf-8", errors="replace"))
+        digest.update(repr(_file_stamp(path)).encode("ascii"))
+
+    for raw in paths:
+        p = Path(raw)
+        add(p)
+        if p.is_file() or not p.is_dir():
+            continue
+        for name in ("workbuddy.db", "workbuddy.db-wal"):
+            add(p / name)
+        proj = p / "projects"
+        if proj.exists():
+            for q in sorted(proj.glob("**/*.jsonl")):
+                add(q)
+        for q in sorted(p.glob("*.json")):
+            add(q)
+    return digest.hexdigest()
+
+
 BUNDLE_SCHEMA = "wbtd-bundle/1"
 
 
-def scan_home(home: Path, device: str, with_prompts: bool = True, since_ts: int | None = None):
+def scan_home(home: Path, device: str, with_prompts: bool = True, since_ts: int | None = None,
+              cache: ScanCache | None = None):
     """扫描一个设备的 WorkBuddy 目录，返回归一化的 (calls, bills, sessions, prompts)。
 
     sid 统一加 "<device>::" 前缀，避免跨设备 UUID / 账单 key 串味。
+    实时服务可传 ScanCache，只重读内容变化的 JSONL / 数据库。
     """
     if not home.exists():
         raise FileNotFoundError(f"设备数据目录不存在: {home}")
-    raw_sessions, raw_bills = load_db(home)
+    raw_sessions, raw_bills = cache.load_db(home) if cache else load_db(home)
     sessions = {f"{device}::{k}": {**v, "device": device} for k, v in raw_sessions.items()}
     bills = {f"{device}::{k}": v for k, v in raw_bills.items()}
     files = sorted((home / "projects").glob("**/*.jsonl"))
@@ -386,7 +478,7 @@ def scan_home(home: Path, device: str, with_prompts: bool = True, since_ts: int 
         raise FileNotFoundError(f"设备 {device} 未找到会话日志: {home / 'projects'}")
     calls, prompts = [], {}
     for p in files:
-        sid, cs, ums = scan_jsonl(p, bills, with_prompts)
+        sid, cs, ums = cache.scan_jsonl(p, bills, with_prompts) if cache else scan_jsonl(p, bills, with_prompts)
         psid = f"{device}::{sid}"
         if since_ts:
             cs = [c for c in cs if c["ts"] >= since_ts]
@@ -410,7 +502,8 @@ def make_bundle(home: Path, device: str, with_prompts: bool = False) -> dict:
     }
 
 
-def bundle_from_sources(sources: list, device: str, with_prompts: bool = False) -> dict:
+def bundle_from_sources(sources: list, device: str, with_prompts: bool = False,
+                        cache: ScanCache | None = None) -> dict:
     """把一个节点（可能含多个源）导出成**单一设备名**的便携包，供别的节点拉取。
 
     所有 sid / uid / 账单 key 统一重写为 "<device>::"，避免对端拿到后设备名混乱。
@@ -421,9 +514,9 @@ def bundle_from_sources(sources: list, device: str, with_prompts: bool = False) 
     seen = set()
     for s in sources:
         if s.get("bundle"):
-            _, calls, bills, sessions, prompts = load_bundle(s["bundle"])
+            _, calls, bills, sessions, prompts = load_bundle(s["bundle"], cache)
         else:
-            _, calls, bills, sessions, prompts = scan_home(s["home"], s["device"], with_prompts)
+            _, calls, bills, sessions, prompts = scan_home(s["home"], s["device"], with_prompts, cache=cache)
         for raw in calls:
             u = _call_uid(raw)
             if u in seen:
@@ -446,7 +539,7 @@ def bundle_from_sources(sources: list, device: str, with_prompts: bool = False) 
     return out
 
 
-def load_bundle(path: Path):
+def _load_bundle(path: Path):
     """还原便携包，结构与 scan_home 输出一致。"""
     obj = json.loads(Path(path).read_text(encoding="utf-8"))
     if obj.get("schema") != BUNDLE_SCHEMA:
@@ -471,13 +564,18 @@ def load_bundle(path: Path):
     return dev, calls, bills, sessions, prompts
 
 
+def load_bundle(path: Path, cache: ScanCache | None = None):
+    return cache.load_bundle(Path(path)) if cache else _load_bundle(Path(path))
+
+
 def _call_uid(c: dict):
     return c.get("uid") or (c["sid"], c["reqid"], c["ts"], c["model"],
                             c["hit"], c["miss"], c["out"], c["write"])
 
 
 def collect_from_sources(sources: list, config_path: Path,
-                         with_prompts: bool = True, since_ts: int | None = None) -> dict:
+                         with_prompts: bool = True, since_ts: int | None = None,
+                         cache: ScanCache | None = None) -> dict:
     """汇总多个设备。
 
     sources: [{"device": 名称, "home": Path 或 None, "bundle": Path 或 None}, ...]
@@ -490,10 +588,10 @@ def collect_from_sources(sources: list, config_path: Path,
     devices, seen = [], set()
     for s in sources:
         if s.get("bundle"):
-            dev, calls, bills, sessions, prompts = load_bundle(s["bundle"])
+            dev, calls, bills, sessions, prompts = load_bundle(s["bundle"], cache)
         else:
             dev, calls, bills, sessions, prompts = scan_home(
-                s["home"], s["device"], with_prompts, since_ts)
+                s["home"], s["device"], with_prompts, since_ts, cache)
         devices.append(dev)
         for c in calls:
             if since_ts and c["ts"] < since_ts:

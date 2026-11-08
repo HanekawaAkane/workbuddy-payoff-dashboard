@@ -144,6 +144,8 @@ class TestRender(unittest.TestCase):
             self.assertIn('id="__DATA__"', html)
             self.assertIn('id="granSeg"', html)          # 按天 / 0-24 时粒度切换
             self.assertIn('renderDistribution()', html)   # 泛化后的堆叠柱渲染
+            self.assertIn('id="pager"', html)             # 大表分页，避免一次渲染数万行
+            self.assertEqual(html.count('id="coverNote"'), 1)
             # 内存渲染与文件渲染结果一致
             self.assertEqual(html, render_html(data, ROOT / "assets" / "template.html"))
 
@@ -185,6 +187,60 @@ class TestLiveServer(unittest.TestCase):
             self.assertNotIn("__DASHBOARD_DATA__", st.html)
             self.assertEqual(st.status()["n_calls"], 1)
             self.assertEqual(st.status()["devices"], ["testdev"])
+            self.assertIn("refreshing", st.status())
+            self.assertIn("cache", st.status())
+
+    def test_scan_cache_reuses_files_and_detects_append(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as td:
+            home = _fake_home(td, "laptop", 1)
+            cache = collect.ScanCache()
+            with mock.patch("collect.scan_jsonl", wraps=collect.scan_jsonl) as scan:
+                first = collect.scan_home(home, "laptop", False, cache=cache)
+                second = collect.scan_home(home, "laptop", False, cache=cache)
+                self.assertEqual(scan.call_count, 1, "未变化 JSONL 不应重复解析")
+                self.assertEqual(len(second[1]), 1)
+                path = home / "projects" / "same-session.jsonl"
+                last = json.loads(path.read_text(encoding="utf-8").splitlines()[-1])
+                last["providerData"]["messageId"] = "new-message"
+                last["timestamp"] += 1000
+                with path.open("a", encoding="utf-8") as fh:
+                    fh.write(json.dumps(last) + "\n")
+                third = collect.scan_home(home, "laptop", False, cache=cache)
+                self.assertEqual(scan.call_count, 2, "追加日志后只应重读变化文件")
+                self.assertEqual(len(third[1]), 2)
+            self.assertGreaterEqual(cache.stats()["hits"], 2)
+
+    def test_fingerprint_detects_file_deletion(self):
+        with tempfile.TemporaryDirectory() as td:
+            home = _fake_home(td, "laptop", 1)
+            before = collect.path_fingerprint([home])
+            (home / "projects" / "same-session.jsonl").unlink()
+            self.assertNotEqual(collect.path_fingerprint([home]), before)
+
+    def test_background_refresh_does_not_hold_status_lock(self):
+        import threading
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as td:
+            home = _fake_home(td, "laptop", 1)
+            st = serve.State([f"testdev={home}"], [], "", False, False,
+                             ROOT / "config" / "pricing.json", ROOT / "assets" / "template.html", False)
+            st.rebuild(force=True)
+            started, release = threading.Event(), threading.Event()
+            original = collect.collect_from_sources
+            def slow_collect(*args, **kwargs):
+                started.set()
+                release.wait(2)
+                return original(*args, **kwargs)
+            st.sig = "stale"
+            with mock.patch("collect.collect_from_sources", side_effect=slow_collect):
+                worker = st.rebuild_async()
+                self.assertTrue(started.wait(1))
+                self.assertTrue(st.status()["refreshing"])
+                release.set()
+                worker.join(3)
+                self.assertFalse(worker.is_alive())
+            self.assertFalse(st.status()["refreshing"])
 
 
 def _fake_home(td: str, name: str, n: int = 2, sid: str = "same-session"):
@@ -323,6 +379,10 @@ class TestPeerPull(unittest.TestCase):
                 self.assertEqual(len(written), 1)
                 self.assertEqual(written[0].name, "远端A.json")
                 self.assertTrue(any("SKIP" in x and "离线" in x for x in logs))
+                before = written[0].stat().st_mtime_ns
+                again = peers.sync_peers({"peers": [cfg["peers"][0]]}, out, timeout=5, log=logs.append)
+                self.assertEqual(again, [], "便携包内容未变时不应重复落盘")
+                self.assertEqual(written[0].stat().st_mtime_ns, before)
             finally:
                 srv.shutdown()
                 srv.server_close()
@@ -567,7 +627,8 @@ class TestRemoteStats(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             p = Path(td) / "stats.csv"
             remote_stats.write_csv(remote_stats.compute(self._data()), p)
-            rows = list(csv.reader(p.open(encoding="utf-8-sig")))
+            with p.open(encoding="utf-8-sig") as fh:
+                rows = list(csv.reader(fh))
             self.assertEqual(rows[0][0], "scope")
             self.assertTrue(any(r[0] == "device" and r[1] == "设备A" for r in rows[1:]))
 

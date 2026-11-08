@@ -79,7 +79,9 @@ def sync_once(cfg: dict, out_dir: Path, io=None, log=print) -> list[Path]:
             if dest.exists() and dest.read_bytes() == raw:
                 log(f"[SAME] {title} 无变化")
                 continue
-            dest.write_bytes(raw)
+            tmp = dest.with_suffix(dest.suffix + ".tmp")
+            tmp.write_bytes(raw)
+            tmp.replace(dest)
             written.append(dest)
             log(f"[OK] {title} -> {dest.name}：{len(obj['calls']):,} 次调用，{len(raw)/1024:.0f} KB")
         except Exception as e:  # noqa: BLE001

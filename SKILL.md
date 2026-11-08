@@ -5,7 +5,9 @@ version: 1.0.0
 agent_created: true
 ---
 
-# WorkBuddy Token Dashboard
+# WorkBuddy Payoff Dashboard（得吃面板）
+
+> Skill 内部名保持 `workbuddy-token-dashboard` 以兼容现有安装；对外项目名及 GitHub 仓库名为 **WorkBuddy Payoff Dashboard**：<https://github.com/HanekawaAkane/workbuddy-payoff-dashboard>。
 
 读取本机 WorkBuddy 的会话日志与官方积分账单，产出一个**离线单文件 HTML 看板**。不联网、不猜倍率、不改客户端。
 
@@ -124,11 +126,11 @@ agent_created: true
 - `open-snapshot.bat` / `start-live.bat` — Windows 双击入口
 - `export-device.bat` / `start-multi.bat` — 多设备导出 / 汇总双击入口
 - `scripts/export.py` — 单设备导出便携包
-- `scripts/collect.py` — 只读采集；支持多源、设备前缀、跨源去重（`collect_from_sources()` / `resolve_sources()` / `path_signature()`）
+- `scripts/collect.py` — 只读采集；支持多源、设备前缀、跨源去重；实时服务用 `ScanCache` 只重读变化文件，`path_fingerprint()` 可识别删除与回滚
 - `config/pricing.json` — 各厂商 API 牌价 + 来源（不含套餐 / 积分折算）
 - `assets/template.html` — 零依赖看板模板（纯 CSS + 原生 JS + SVG 图表）
 - `scripts/render.py` — 注入数据生成单文件 HTML；暴露 `render_html()`
-- `scripts/serve.py` — 只绑 127.0.0.1 的本地服务，打开即最新、自动重载、`/api/data` 原始 JSON
+- `scripts/serve.py` — 只绑 127.0.0.1 的本地服务，文件级增量缓存、后台重算、自动重载、gzip；`/api/data` 原始 JSON，`/api/status` 含刷新状态/耗时/缓存统计
 - `scripts/push_deploy_kit.py` — 一键准备跨设备发布：密钥 / 配置 / ZIP / 下载页 / 安全自检 / 对端命令；并把 folder_id 注入部署包
 - `scripts/library_io.py` — 封装资料库内置脚本：路径探测、列举文件夹、新建/原地覆盖 drive 节点、下载
 - `scripts/publish_bundle.py` — 对端一键：导出无提示词便携包 + 原地覆盖资料库固定节点（自动化任务的执行内容）

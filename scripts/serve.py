@@ -14,6 +14,7 @@ workbuddy-token-dashboard / serve.py
 """
 from __future__ import annotations
 import argparse
+import gzip
 import json
 import os
 import socket
@@ -47,25 +48,44 @@ body{padding-bottom:58px}
 #livebar a{color:#a8b0c8;text-decoration:none;font-size:11px}
 #livebar a:hover{color:#fff}
 #livebar.busy .dot{background:#fbbf24;box-shadow:0 0 0 3px rgba(251,191,36,.2)}
+#livebar.error .dot{background:#f87171;box-shadow:0 0 0 3px rgba(248,113,113,.2)}
+#livebar button:disabled{opacity:.55;cursor:wait}
+@media(max-width:640px){#livebar{left:12px;right:12px;bottom:12px;justify-content:center;gap:8px}#livebar a{display:none}}
 </style>
-<div id="livebar"><span class="dot"></span><span>本地实时 · __DEV__ · 数据截止 <b id="liveAt">__GEN__</b></span>
+<div id="livebar" role="status"><span class="dot"></span><span id="liveText">本地实时 · __DEV__ · 数据截止 <b id="liveAt">__GEN__</b></span>
   <button id="liveRefresh">重新读取</button><a href="/api/data" target="_blank">原始 JSON ↗</a></div>
 <script>
 (function(){
-  var sig=__SIG__;
-  var bar=document.getElementById('livebar');
-  document.getElementById('liveRefresh').addEventListener('click',async function(){
-    bar.classList.add('busy');
-    try{ await fetch('/api/refresh',{cache:'no-store'}); }catch(e){}
-    location.reload();
-  });
-  setInterval(async function(){
+  var sig=__SIG__, busy=false;
+  var bar=document.getElementById('livebar'), button=document.getElementById('liveRefresh');
+  function state(kind,text){
+    bar.classList.toggle('busy',kind==='busy'); bar.classList.toggle('error',kind==='error');
+    if(text) document.getElementById('liveText').textContent=text;
+  }
+  async function poll(){
+    if(busy||document.hidden) return;
+    busy=true;
     try{
-      var r=await fetch('/api/status',{cache:'no-store'});
-      var j=await r.json();
-      if(j.sig && j.sig!==sig) location.reload();
-    }catch(e){}
-  },20000);
+      var r=await fetch('/api/status',{cache:'no-store'}), j=await r.json();
+      if(j.refreshing) state('busy','检测到变化，正在增量更新…');
+      else if(j.error) state('error','更新失败：'+j.error);
+      else if(j.sig&&j.sig!==sig) location.reload();
+      else state('ok','本地实时 · 已是最新 · 数据截止 __GEN__');
+      bar.title=j.last_duration_ms?('上次重算 '+j.last_duration_ms+' ms'+(j.cache?(' · 缓存命中 '+j.cache.hits+' 次'):'')):'';
+    }catch(e){ state('error','本地服务连接失败，请确认服务仍在运行'); }
+    finally{ busy=false; }
+  }
+  button.addEventListener('click',async function(){
+    if(busy) return;
+    busy=true; button.disabled=true; state('busy','正在重新读取…');
+    try{
+      var r=await fetch('/api/refresh',{cache:'no-store'}), j=await r.json();
+      if(!r.ok||!j.ok) throw new Error(j.error||'刷新失败');
+      location.reload();
+    }catch(e){ state('error','刷新失败：'+e.message); }
+    finally{ busy=false; button.disabled=false; }
+  });
+  setInterval(poll,20000);
 })();
 </script>
 """
@@ -80,12 +100,17 @@ class State:
         self.with_prompts = with_prompts
         self.sources = collect.resolve_sources(self.homes, self.sources_dirs,
                                                device, no_local, with_local)
-        self.lock = threading.Lock()
+        self.lock = threading.Lock()          # 只保护可发布状态，不在重算期间占用
+        self.rebuild_lock = threading.Lock()  # 同一时刻只允许一个采集任务
+        self.cache = collect.ScanCache()
         self.html = ""
         self.data = None
-        self.sig = 0.0
+        self.sig = ""
         self.generated = ""
         self.error = ""
+        self.refreshing = False
+        self.last_duration_ms = 0
+        self.last_checked_at = ""
 
     def _watch_paths(self):
         paths = []
@@ -101,47 +126,62 @@ class State:
                 paths.append(s["bundle"])
         return paths
 
-    def signature(self) -> float:
-        """所有数据源 + 模板 + 价格表的综合修改时间。同步盘里新放一个包也会触发重算。"""
-        sig = collect.path_signature(self._watch_paths())
-        for p in (self.template, self.config, ROOT / "scripts" / "serve.py"):
-            if p.exists():
-                sig = max(sig, p.stat().st_mtime)
-        return sig
+    def signature(self) -> str:
+        """完整结构指纹，文件删除 / 回滚 / 新便携包都能被发现。"""
+        paths = self._watch_paths() + [self.template, self.config, ROOT / "scripts" / "serve.py"]
+        return collect.path_fingerprint(paths)
 
     def rebuild(self, force: bool = False):
-        # 每次重算都重新发现便携包：同步盘里新落一个文件，下一秒就能出现在看板上
-        try:
-            self.sources = collect.resolve_sources(self.homes, self.sources_dirs,
-                                                   self.device, self.no_local, self.with_local)
-        except (FileNotFoundError, ValueError) as e:
-            self.error = str(e)
-            return
-        sig = self.signature()
-        with self.lock:
-            if self.html and not force and sig <= self.sig:
-                return
+        started = time.perf_counter()
+        with self.rebuild_lock:
+            with self.lock:
+                self.refreshing = True
             try:
-                data = collect.collect_from_sources(self.sources, self.config, self.with_prompts)
+                # 每次重算都重新发现便携包；未变化的文件由 ScanCache 直接复用。
+                self.sources = collect.resolve_sources(self.homes, self.sources_dirs,
+                                                       self.device, self.no_local, self.with_local)
+                sig = self.signature()
+                with self.lock:
+                    if self.html and not force and sig == self.sig:
+                        return
+                data = collect.collect_from_sources(self.sources, self.config, self.with_prompts,
+                                                    cache=self.cache)
                 dev = data["meta"].get("devices", [])
                 devtxt = f"{len(dev)} 台设备" if len(dev) > 1 else (dev[0] if dev else "本机")
                 bar = (LIVE_BAR.replace("__GEN__", data["meta"]["generated_at"][:19].replace("T", " "))
                                .replace("__DEV__", devtxt)
                                .replace("__SIG__", json.dumps(sig)))
-                self.html = render_html(data, self.template).replace("</body>", bar + "</body>")
-                self.data = data
-                self.sig = sig
-                self.generated = data["meta"]["generated_at"]
-                self.error = ""
+                html = render_html(data, self.template).replace("</body>", bar + "</body>")
+                with self.lock:
+                    self.html, self.data, self.sig = html, data, sig
+                    self.generated = data["meta"]["generated_at"]
+                    self.error = ""
             except Exception as e:  # noqa: BLE001
-                self.error = f"{type(e).__name__}: {e}"
+                with self.lock:
+                    self.error = f"{type(e).__name__}: {e}"
+            finally:
+                with self.lock:
+                    self.refreshing = False
+                    self.last_duration_ms = round((time.perf_counter() - started) * 1000)
+                    self.last_checked_at = datetime.now(CST).isoformat(timespec="seconds")
+
+    def rebuild_async(self):
+        with self.lock:
+            if self.refreshing:
+                return None
+            self.refreshing = True
+        worker = threading.Thread(target=self.rebuild, daemon=True, name="dashboard-rebuild")
+        worker.start()
+        return worker
 
     def status(self) -> dict:
         with self.lock:
             d = self.data
             return {
                 "ok": bool(self.html) and not self.error, "sig": self.sig, "generated": self.generated,
-                "error": self.error,
+                "error": self.error, "refreshing": self.refreshing,
+                "last_duration_ms": self.last_duration_ms, "last_checked_at": self.last_checked_at,
+                "cache": self.cache.stats(), "source_count": len(self.sources),
                 "n_calls": d["meta"]["n_calls"] if d else 0,
                 "total_credit": d["meta"]["total_credit"] if d else 0,
                 "total_api_cost": d["meta"]["total_api_cost"] if d else 0,
@@ -160,13 +200,22 @@ class Handler(BaseHTTPRequestHandler):
         sys.stderr.write("[%s] %s\n" % (datetime.now(CST).strftime("%H:%M:%S"), fmt % args))
 
     def _send(self, body: bytes, ctype: str, code: int = 200):
+        compressed = False
+        textual = ctype.startswith(("text/", "application/json", "application/javascript"))
+        if len(body) > 2048 and textual and "gzip" in self.headers.get("Accept-Encoding", "").lower():
+            body = gzip.compress(body, compresslevel=5)
+            compressed = True
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Vary", "Accept-Encoding")
+        if compressed:
+            self.send_header("Content-Encoding", "gzip")
         self.end_headers()
-        self.wfile.write(body)
+        if code != 204:
+            self.wfile.write(body)
 
     def _json(self, obj, code: int = 200):
         self._send(json.dumps(obj, ensure_ascii=False).encode("utf-8"),
@@ -192,13 +241,15 @@ class Handler(BaseHTTPRequestHandler):
             self._json(STATE.status())
             return
         if path == "/api/status":
-            # 探测也顺带检查源数据是否变化，变了就后台重算，页面下一次刷新会拿到新数据
+            # 状态请求永不等待全量重算：变化由后台线程处理，下一轮轮询再取新页面。
             sig = STATE.signature()
             with STATE.lock:
-                stale = sig > STATE.sig
+                stale = sig != STATE.sig
             if stale:
-                STATE.rebuild()
-            self._json(STATE.status())
+                STATE.rebuild_async()
+            result = STATE.status()
+            result["stale"] = stale
+            self._json(result)
             return
         if path == "/api/data":
             STATE.rebuild()
@@ -218,7 +269,10 @@ class Handler(BaseHTTPRequestHandler):
                     return
             STATE.rebuild()
             try:
-                obj = collect.bundle_from_sources(STATE.sources, CONFIG["bundle_device"], False)
+                obj = collect.bundle_from_sources(STATE.sources, CONFIG["bundle_device"], False,
+                                                  cache=STATE.cache)
+                # 同源内容未变化时导出时间也保持稳定，便于对端识别无变化并避免重复落盘。
+                obj["exported_at"] = STATE.generated or obj["exported_at"]
                 self._json(obj)
             except Exception as e:  # noqa: BLE001
                 self._json({"error": f"{type(e).__name__}: {e}"}, 500)

@@ -7,6 +7,7 @@ config/peers.json
 config/peers.demo.json
 # 资料库同步实例含个人文件夹 ID，不入库（模板 library-sync.example.json 可提交）
 config/library-sync.json
+config/library-target.json
 
 # Python
 __pycache__/
