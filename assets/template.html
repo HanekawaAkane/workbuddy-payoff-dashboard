@@ -44,21 +44,25 @@ button,select,input{font:inherit;color:inherit}
 .hero h1{font-size:34px;line-height:1.25;letter-spacing:-.035em;margin:30px 0 8px;font-weight:750}
 .hero .sub{color:var(--muted);margin:0 0 22px;font-size:13.5px}
 .hero .sub b{color:var(--text);font-weight:650}
-.meme-strip{margin:0 0 18px;border:1px solid #e8d6a6;background:#fffaf0;border-radius:12px;padding:14px 16px;
-  display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center}
-.meme-strip[hidden]{display:none}
-.meme-top{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
-.meme-badge{font-size:10.5px;color:var(--amber);background:var(--amber2);border:1px solid #efd9ad;
-  border-radius:999px;padding:2px 8px;font-weight:700;white-space:nowrap}
-.meme-title{font-size:18px;font-weight:750;letter-spacing:-.02em}
-.meme-next{padding:3px 8px;font-size:11px;color:var(--muted)}
-.meme-line{color:var(--muted);font-size:12px;margin-top:5px;line-height:1.7}
-.meme-meter{height:5px;background:#f0e4c8;border-radius:99px;overflow:hidden;margin-top:10px;max-width:520px}
-.meme-meter>span{display:block;height:100%;background:var(--amber);border-radius:99px;transition:width .3s}
-.meme-right{text-align:right;min-width:168px}
-.meme-value{font-size:24px;color:var(--amber);font-weight:760;letter-spacing:-.03em;line-height:1.2}
-.meme-share{font-size:11.5px;color:var(--muted);margin-top:4px}
-.meme-note{font-size:10.5px;color:var(--faint);margin-top:5px}
+/* ---------- 历史总花销：全量累计，不随筛选变化 ---------- */
+.lifetime-strip{margin:0 0 18px;border:1px solid #dcd8ff;border-radius:12px;
+  background:linear-gradient(135deg,#f6f5ff,#fff);padding:16px 18px;
+  display:grid;grid-template-columns:1fr 262px;gap:22px;align-items:center}
+.lifetime-label{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-size:12px;font-weight:700;color:var(--muted)}
+.lifetime-label .tag{background:var(--accent2);color:var(--accent);border:1px solid #dcd8ff}
+.lifetime-value{font-size:34px;font-weight:780;letter-spacing:-.04em;line-height:1.2;color:var(--accent);margin:3px 0 4px}
+.lifetime-meta{font-size:11.5px;color:var(--muted);line-height:1.7}
+.lifetime-note{font-size:10.5px;color:var(--faint);margin-top:5px}
+.lifetime-side{border-left:1px solid #e3e0fb;padding-left:20px;min-width:0}
+.lifetime-side .k{font-size:11.5px;color:var(--muted)}
+.lifetime-side .v{font-size:18px;font-weight:750;color:var(--text);letter-spacing:-.02em;margin:3px 0 9px}
+.lifetime-meter{height:6px;background:#e9e7fb;border-radius:99px;overflow:hidden}
+.lifetime-meter>span{display:block;height:100%;background:var(--accent);border-radius:99px;transition:width .3s}
+.lifetime-side .foot{font-size:10.5px;color:var(--faint);margin-top:7px;line-height:1.6}
+.lifetime-bars .mbar{margin:11px 0}
+.lifetime-bars .mbar .nm{width:150px}
+.lifetime-bars .mbar .vv{width:86px}
+.lifetime-empty{color:var(--faint);font-size:12px;padding:16px 0;text-align:center}
 .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;padding-bottom:26px}
 .kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:15px 16px;box-shadow:var(--shadow)}
 .kpi .lbl{font-size:11.5px;color:var(--muted);display:flex;align-items:center;gap:6px;margin-bottom:7px}
@@ -256,9 +260,10 @@ footer{border-top:1px solid var(--border);padding:22px 0 40px;color:var(--faint)
   .monthnav{width:100%;justify-content:flex-end}
   .monthnav select{max-width:116px}
   .tablewrap{max-height:560px}
-  .meme-strip{grid-template-columns:1fr;gap:10px;padding:13px}
-  .meme-right{text-align:left;min-width:0}
-  .meme-title{font-size:16px}
+  .lifetime-strip{grid-template-columns:1fr;gap:12px;padding:14px}
+  .lifetime-value{font-size:28px}
+  .lifetime-side{border-left:0;border-top:1px solid #e3e0fb;padding:12px 0 0}
+  .lifetime-bars .mbar .nm{width:112px}
 }
 button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important}}
@@ -277,26 +282,25 @@ button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{ou
         <label class="ctl" id="deviceCtl" style="display:none">设备
           <select id="deviceSel"></select>
         </label>
-        <button class="btn" id="memeToggle" type="button" aria-pressed="true">整活：开</button>
         <button class="btn" id="exportBtn">导出 CSV</button>
       </div>
     </div>
-    <h1>这波到底「得吃」了多少价值？</h1>
+    <h1>这些用量，历史上一共值多少钱？</h1>
     <p class="sub">数据源：<b>WorkBuddy 本地会话日志 + session_usage 官方积分账单</b>　·　
       生成于 <b id="builtAt"></b>　·　覆盖 <b id="rangeTxt"></b>　·　当前视图 <b id="scopeTxt"></b><br>
       金额按各模型厂商公开 API 牌价估算，<b>不是账单或实际收入</b>；官方积分只作用量指标。</p>
-    <div class="meme-strip" id="memeBanner" aria-live="polite">
+    <div class="lifetime-strip">
       <div>
-        <div class="meme-top"><span class="meme-badge">三角洲风味结算</span>
-          <span class="meme-title" id="memeTitle">这波得吃</span>
-          <button class="btn meme-next" id="memeNext" type="button">换一句</button></div>
-        <div class="meme-line" id="memeLine"></div>
-        <div class="meme-meter" aria-hidden="true"><span id="memeMeterFill"></span></div>
+        <div class="lifetime-label">历史总花销 <span class="tag">全部时间 · 全部设备 · 不随筛选变化</span></div>
+        <div class="lifetime-value num" id="lifetimeCost">—</div>
+        <div class="lifetime-meta" id="lifetimeMeta"></div>
+        <div class="lifetime-note">按厂商公开 API 牌价逐条调用累计，不是账单，也不是实际收入；官方积分只作用量指标。</div>
       </div>
-      <div class="meme-right">
-        <div class="meme-value num" id="memeValue"></div>
-        <div class="meme-share" id="memeShare"></div>
-        <div class="meme-note">本局只算当前筛选 · 公开牌价估算，不是账单/收入</div>
+      <div class="lifetime-side">
+        <div class="k">当前视图 · 占历史总额</div>
+        <div class="v num" id="lifetimeView">—</div>
+        <div class="lifetime-meter" aria-hidden="true"><span id="lifetimeMeter" style="width:0%"></span></div>
+        <div class="foot" id="lifetimeCompare"></div>
       </div>
     </div>
     <div class="kpis" id="kpis"></div>
@@ -304,6 +308,7 @@ button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{ou
 </header>
 
 <nav><div class="wrap">
+  <a href="#s0">00 · 历史总花销</a>
   <a href="#s1">01 · 热力图</a>
   <a href="#s2">02 · 模型分布</a>
   <a href="#s3">03 · 三级下钻</a>
@@ -314,6 +319,23 @@ button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{ou
 </div></nav>
 
 <main class="wrap">
+
+  <!-- 00 -->
+  <section id="s0">
+    <div class="sec-head"><span class="eyebrow">00 / Lifetime</span><h2>历史总花销构成</h2>
+      <span class="desc">全量累计 · 不随上方筛选变化 · 按厂商公开牌价估算</span></div>
+    <div class="grid2b">
+      <div class="card">
+        <div class="card-head"><h3>按模型累计</h3><span class="hint">全部模型，按金额降序</span></div>
+        <div class="lifetime-bars" id="lifetimeByModel"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>按月份累计</h3><span class="hint" id="lifetimeMonthHint"></span></div>
+        <div class="lifetime-bars" id="lifetimeByMonth"></div>
+      </div>
+    </div>
+    <div class="note" id="lifetimeNote" style="margin-bottom:0"></div>
+  </section>
 
   <!-- 01 -->
   <section id="s1">
@@ -587,9 +609,9 @@ const state={
   month: months[months.length-1], day:null, hour:null, model:null, device:null,
   sessionIdx:null, requestIdx:null, metric:'tokens', gran:'day',
   search:'', sortKey:null, sortDir:-1, page:1, pageSize:50,
-  openCall:null, meme:true, memeIndex:0
+  openCall:null
 };
-for(const k of ['month','day','hour','model','device','metric','gran','pageSize','meme','memeIndex']){
+for(const k of ['month','day','hour','model','device','metric','gran','pageSize']){
   if(saved[k]!==undefined) state[k]=saved[k];
 }
 if(state.month!=='ALL'&&!months.includes(state.month)) state.month=months[months.length-1];
@@ -600,11 +622,9 @@ if(state.device&&!DEVICES.includes(state.device)) state.device=null;
 if(!['tokens','credit','cost'].includes(state.metric)) state.metric='tokens';
 if(!['day','hour'].includes(state.gran)) state.gran='day';
 if(![50,100,200].includes(state.pageSize)) state.pageSize=50;
-state.meme=state.meme!==false;
-if(!Number.isInteger(state.memeIndex)||state.memeIndex<0) state.memeIndex=0;
 function saveView(){
   try{
-    const v={}; for(const k of ['month','day','hour','model','device','metric','gran','pageSize','meme','memeIndex']) v[k]=state[k];
+    const v={}; for(const k of ['month','day','hour','model','device','metric','gran','pageSize']) v[k]=state[k];
     localStorage.setItem(STORE_KEY,JSON.stringify(v));
   }catch(e){}
 }
@@ -664,43 +684,62 @@ function renderKpis(){
     {l:'总 Token',v:tok(a.total),f:fmtSeg(a),c:''},
     {l:'官方实际积分',v:cr(a.credit),f:a.n.toLocaleString('zh-CN')+' 次 API 调用 · 仅作用量指标',c:''},
     {l:'缓存命中率',v:pct(a.hitRate),f:'命中 '+tok(a.hit)+' / 输入 '+tok(a.hit+a.miss),c:''},
-    {l:'同用量 API 直购价',v:cny(a.cost),f:'四段 token × 厂商牌价 · 人民币',c:'hl'},
+    {l:'同用量 API 直购价',v:cny(a.cost),f:'当前视图 · 四段 token × 厂商牌价 · 人民币',c:'hl'},
   ];
   $('#kpis').innerHTML=items.map(x=>`<div class="kpi ${x.c}"><div class="lbl"><span class="dot"></span>${x.l}</div>
     <div class="val num">${x.v}</div><div class="foot">${x.f}</div></div>`).join('');
 }
 function fmtSeg(a){ return `未命中 ${tok(a.miss)} · 输出 ${tok(a.out)} · 命中 ${tok(a.hit)}`; }
 
-/* ---------- 三角洲风味彩蛋：只换文案，不改金额口径 ---------- */
-function renderMeme(){
+/* ---------- 历史总花销：全量累计，只在初始化时分组一次 ---------- */
+const LIFETIME=(()=>{
+  const byModel=new Map(), byMonth=new Map(), daySet=new Set();
+  let sum=0, calls=0;
+  for(let i=0;i<D.calls.length;i++){
+    const c=D.calls[i], v=c[C_COST];
+    byModel.set(c[C_MODEL],(byModel.get(c[C_MODEL])||0)+v);
+    byMonth.set(cMonth[i],(byMonth.get(cMonth[i])||0)+v);
+    daySet.add(cDay[i]); sum+=v; calls++;
+  }
+  return {
+    cost:Number.isFinite(D.meta.total_api_cost)?D.meta.total_api_cost:sum,
+    sum, calls, days:daySet.size||1,
+    byModel:[...byModel].sort((a,b)=>b[1]-a[1]),
+    byMonth:[...byMonth].sort((a,b)=>b[0].localeCompare(a[0]))
+  };
+})();
+function renderLifetimeStrip(){
   const a=agg(filterCalls({}));
-  $('#memeToggle').textContent='整活：'+(state.meme?'开':'关');
-  $('#memeToggle').setAttribute('aria-pressed',state.meme?'true':'false');
-  $('#memeBanner').hidden=!state.meme;
-  if(!state.meme) return;
-  const pick=arr=>arr[state.memeIndex%arr.length];
-  let titles;
-  if(a.n===0) titles=['空包撤离','这局纯摸空气'];
-  else if(a.cost===0) titles=['结算为零，先别开香槟','这局账面没带出东西'];
-  else if(a.cost<100) titles=['小肥也是肥','摸了把边角料'];
-  else if(a.cost<1000) titles=['这波得吃','背包有点分量'];
-  else if(a.cost<3000) titles=['肥肥撤离','这波满载而归'];
-  else titles=['大金到手，满包撤离','背包直接爆仓'];
-  const cacheLines=a.hitRate>=.85
-    ? ['缓存命中像安全箱，没白扛枪线。','这命中率，跑刀都摸出大货。']
-    : a.hitRate>=.6
-      ? ['缓存有货，没把把硬刚。','命中率还行，背包没被打成筛子。']
-      : ['缓存偏薄，这波主要靠硬刚。','命中率一般，多少有点莽。'];
-  const scope=state.day?state.day+' 这一局':state.hour!==null?state.hour+':00 这一小时':state.month==='ALL'?'全量背包结算':state.month+' 这局';
-  const squad=state.device?'单排 · '+state.device:(DEVICES.length===1?'单排':DEVICES.length===2?'双排':DEVICES.length+' 排');
-  const model=state.model!==null?' · 只摸 '+D.models[state.model][M_DISPLAY]:'';
-  const line=a.n===0?'当前筛选没有调用，换个月份或重置筛选，别空手蹲撤离点。':pick(cacheLines);
-  $('#memeTitle').textContent=pick(titles);
-  $('#memeLine').textContent=squad+' · '+scope+model+' · '+line;
-  $('#memeValue').textContent=cny(a.cost);
-  const share=D.meta.total_api_cost>0?Math.min(1,a.cost/D.meta.total_api_cost):0;
-  $('#memeShare').textContent='本局带出价值 · 占全量 '+pct(share);
-  $('#memeMeterFill').style.width=(share*100).toFixed(2)+'%';
+  const r=D.meta.range||[0,0];
+  $('#lifetimeCost').textContent=cny(LIFETIME.cost);
+  $('#lifetimeMeta').innerHTML=`覆盖 ${dayStr(r[0])} ~ ${dayStr(r[1])} · 累计 ${nf(LIFETIME.calls)} 次 API 调用 · `+
+    `有用量 ${LIFETIME.days} 天 · 日均 ${cny(LIFETIME.cost/LIFETIME.days)}`+
+    (MULTI?` · ${DEVICES.length} 台设备`:'');
+  const share=LIFETIME.cost>0?Math.min(1,Math.max(0,a.cost/LIFETIME.cost)):0;
+  $('#lifetimeView').textContent=cny(a.cost)+' · '+pct(share);
+  $('#lifetimeMeter').style.width=(share*100).toFixed(2)+'%';
+  $('#lifetimeCompare').textContent='当前筛选：'+scopeLabel()+(state.day?' · '+state.day:'')+
+    (state.device?' · '+state.device:'')+(state.model!==null?' · '+D.models[state.model][M_DISPLAY]:'')+
+    '；历史总额始终按全量计算';
+}
+function lifetimeBars(rows,total){
+  const mx=Math.max(0,...rows.map(r=>r[1]));
+  return rows.map(([label,v,color])=>`<div class="mbar">
+    <span class="nm" title="${esc(label)} · 占历史总额 ${total>0?pct(v/total):'0.0%'}">${esc(label)}</span>
+    <span class="tr"><div class="fl" style="width:${mx>0?Math.max(2,v/mx*100):0}%;background:${color}"></div></span>
+    <span class="vv num">${cny(v)}</span></div>`).join('') || '<div class="lifetime-empty">暂无数据</div>';
+}
+function renderLifetimeBreakdown(){
+  const total=LIFETIME.sum;
+  $('#lifetimeByModel').innerHTML=lifetimeBars(
+    LIFETIME.byModel.map(([k,v])=>[D.models[k]?D.models[k][M_DISPLAY]:String(k),v,modelColor(k)]),total);
+  const monthRows=LIFETIME.byMonth.slice(0,12).map(([m,v])=>[m,v,'#4f46e5']);
+  $('#lifetimeMonthHint').textContent=`共 ${LIFETIME.byMonth.length} 个月`+
+    (LIFETIME.byMonth.length>12?' · 显示最近 12 个月':'');
+  $('#lifetimeByMonth').innerHTML=lifetimeBars(monthRows,total);
+  $('#lifetimeNote').innerHTML=`<b>口径说明。</b>这里是全部时间、全部设备的逐次调用按厂商公开 API 牌价累计的估算值，
+    <b>不是账单，也不是实际收入</b>；官方积分只作用量指标，不折算人民币。上方切换月份、日期、设备或模型时，本栏不变。
+    明细按逐调用金额累加，四舍五入到分后与顶部总额可能有不超过 ¥0.01 的尾差。`;
 }
 
 /* ---------- heatmap ---------- */
@@ -1178,7 +1217,7 @@ function renderPricing(){
 /* ---------- init / controls ---------- */
 function renderAll(){
   filterCache=new Map(); aggCache=new WeakMap();
-  renderKpis(); renderMeme(); renderHeat(); renderSide(); renderDistribution();
+  renderKpis(); renderLifetimeStrip(); renderHeat(); renderSide(); renderDistribution();
   renderChips(); renderCrumbs(); renderTable(); renderPricing();
   $('#navMeta').textContent=`${nf(D.meta.n_calls)} 次调用 · ${D.meta.n_models} 个模型`+(MULTI?` · ${DEVICES.length} 台设备`:'');
   $('#scopeTxt').textContent=scopeLabel()+(state.day?' · '+state.day:'')+(state.hour!==null?' · '+state.hour+':00':'')+
@@ -1186,8 +1225,7 @@ function renderAll(){
   saveView();
 }
 function initControls(){
-  $('#memeToggle').addEventListener('click',()=>{state.meme=!state.meme;saveView();renderMeme();});
-  $('#memeNext').addEventListener('click',()=>{state.memeIndex=(state.memeIndex+1)%1000;saveView();renderMeme();});
+  renderLifetimeBreakdown();
   $('#monthSel').innerHTML=months.slice().reverse().map(m=>`<option value="${m}">${m}</option>`).join('')+'<option value="ALL">全部时间</option>';
   $('#monthSel').value=state.month;
   $('#monthSel').addEventListener('change',e=>{state.month=e.target.value;resetTimeDrill();renderAll();});
