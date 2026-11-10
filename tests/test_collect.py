@@ -145,6 +145,10 @@ class TestRender(unittest.TestCase):
             self.assertIn('id="granSeg"', html)          # 按天 / 0-24 时粒度切换
             self.assertIn('renderDistribution()', html)   # 泛化后的堆叠柱渲染
             self.assertIn('id="pager"', html)             # 大表分页，避免一次渲染数万行
+            self.assertIn('id="memeBanner"', html)         # 可关闭的得吃梗结算条
+            self.assertIn('id="memeToggle"', html)
+            self.assertIn('三角洲风味结算', html)
+            self.assertIn('function renderMeme()', html)
             self.assertEqual(html.count('id="coverNote"'), 1)
             # 内存渲染与文件渲染结果一致
             self.assertEqual(html, render_html(data, ROOT / "assets" / "template.html"))

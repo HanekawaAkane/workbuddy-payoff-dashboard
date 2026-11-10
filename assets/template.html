@@ -44,6 +44,21 @@ button,select,input{font:inherit;color:inherit}
 .hero h1{font-size:34px;line-height:1.25;letter-spacing:-.035em;margin:30px 0 8px;font-weight:750}
 .hero .sub{color:var(--muted);margin:0 0 22px;font-size:13.5px}
 .hero .sub b{color:var(--text);font-weight:650}
+.meme-strip{margin:0 0 18px;border:1px solid #e8d6a6;background:#fffaf0;border-radius:12px;padding:14px 16px;
+  display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center}
+.meme-strip[hidden]{display:none}
+.meme-top{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.meme-badge{font-size:10.5px;color:var(--amber);background:var(--amber2);border:1px solid #efd9ad;
+  border-radius:999px;padding:2px 8px;font-weight:700;white-space:nowrap}
+.meme-title{font-size:18px;font-weight:750;letter-spacing:-.02em}
+.meme-next{padding:3px 8px;font-size:11px;color:var(--muted)}
+.meme-line{color:var(--muted);font-size:12px;margin-top:5px;line-height:1.7}
+.meme-meter{height:5px;background:#f0e4c8;border-radius:99px;overflow:hidden;margin-top:10px;max-width:520px}
+.meme-meter>span{display:block;height:100%;background:var(--amber);border-radius:99px;transition:width .3s}
+.meme-right{text-align:right;min-width:168px}
+.meme-value{font-size:24px;color:var(--amber);font-weight:760;letter-spacing:-.03em;line-height:1.2}
+.meme-share{font-size:11.5px;color:var(--muted);margin-top:4px}
+.meme-note{font-size:10.5px;color:var(--faint);margin-top:5px}
 .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;padding-bottom:26px}
 .kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:15px 16px;box-shadow:var(--shadow)}
 .kpi .lbl{font-size:11.5px;color:var(--muted);display:flex;align-items:center;gap:6px;margin-bottom:7px}
@@ -241,6 +256,9 @@ footer{border-top:1px solid var(--border);padding:22px 0 40px;color:var(--faint)
   .monthnav{width:100%;justify-content:flex-end}
   .monthnav select{max-width:116px}
   .tablewrap{max-height:560px}
+  .meme-strip{grid-template-columns:1fr;gap:10px;padding:13px}
+  .meme-right{text-align:left;min-width:0}
+  .meme-title{font-size:16px}
 }
 button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important}}
@@ -259,6 +277,7 @@ button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{ou
         <label class="ctl" id="deviceCtl" style="display:none">设备
           <select id="deviceSel"></select>
         </label>
+        <button class="btn" id="memeToggle" type="button" aria-pressed="true">整活：开</button>
         <button class="btn" id="exportBtn">导出 CSV</button>
       </div>
     </div>
@@ -266,6 +285,20 @@ button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{ou
     <p class="sub">数据源：<b>WorkBuddy 本地会话日志 + session_usage 官方积分账单</b>　·　
       生成于 <b id="builtAt"></b>　·　覆盖 <b id="rangeTxt"></b>　·　当前视图 <b id="scopeTxt"></b><br>
       金额按各模型厂商公开 API 牌价估算，<b>不是账单或实际收入</b>；官方积分只作用量指标。</p>
+    <div class="meme-strip" id="memeBanner" aria-live="polite">
+      <div>
+        <div class="meme-top"><span class="meme-badge">三角洲风味结算</span>
+          <span class="meme-title" id="memeTitle">这波得吃</span>
+          <button class="btn meme-next" id="memeNext" type="button">换一句</button></div>
+        <div class="meme-line" id="memeLine"></div>
+        <div class="meme-meter" aria-hidden="true"><span id="memeMeterFill"></span></div>
+      </div>
+      <div class="meme-right">
+        <div class="meme-value num" id="memeValue"></div>
+        <div class="meme-share" id="memeShare"></div>
+        <div class="meme-note">本局只算当前筛选 · 公开牌价估算，不是账单/收入</div>
+      </div>
+    </div>
     <div class="kpis" id="kpis"></div>
   </div>
 </header>
@@ -554,9 +587,9 @@ const state={
   month: months[months.length-1], day:null, hour:null, model:null, device:null,
   sessionIdx:null, requestIdx:null, metric:'tokens', gran:'day',
   search:'', sortKey:null, sortDir:-1, page:1, pageSize:50,
-  openCall:null
+  openCall:null, meme:true, memeIndex:0
 };
-for(const k of ['month','day','hour','model','device','metric','gran','pageSize']){
+for(const k of ['month','day','hour','model','device','metric','gran','pageSize','meme','memeIndex']){
   if(saved[k]!==undefined) state[k]=saved[k];
 }
 if(state.month!=='ALL'&&!months.includes(state.month)) state.month=months[months.length-1];
@@ -567,9 +600,11 @@ if(state.device&&!DEVICES.includes(state.device)) state.device=null;
 if(!['tokens','credit','cost'].includes(state.metric)) state.metric='tokens';
 if(!['day','hour'].includes(state.gran)) state.gran='day';
 if(![50,100,200].includes(state.pageSize)) state.pageSize=50;
+state.meme=state.meme!==false;
+if(!Number.isInteger(state.memeIndex)||state.memeIndex<0) state.memeIndex=0;
 function saveView(){
   try{
-    const v={}; for(const k of ['month','day','hour','model','device','metric','gran','pageSize']) v[k]=state[k];
+    const v={}; for(const k of ['month','day','hour','model','device','metric','gran','pageSize','meme','memeIndex']) v[k]=state[k];
     localStorage.setItem(STORE_KEY,JSON.stringify(v));
   }catch(e){}
 }
@@ -635,6 +670,38 @@ function renderKpis(){
     <div class="val num">${x.v}</div><div class="foot">${x.f}</div></div>`).join('');
 }
 function fmtSeg(a){ return `未命中 ${tok(a.miss)} · 输出 ${tok(a.out)} · 命中 ${tok(a.hit)}`; }
+
+/* ---------- 三角洲风味彩蛋：只换文案，不改金额口径 ---------- */
+function renderMeme(){
+  const a=agg(filterCalls({}));
+  $('#memeToggle').textContent='整活：'+(state.meme?'开':'关');
+  $('#memeToggle').setAttribute('aria-pressed',state.meme?'true':'false');
+  $('#memeBanner').hidden=!state.meme;
+  if(!state.meme) return;
+  const pick=arr=>arr[state.memeIndex%arr.length];
+  let titles;
+  if(a.n===0) titles=['空包撤离','这局纯摸空气'];
+  else if(a.cost===0) titles=['结算为零，先别开香槟','这局账面没带出东西'];
+  else if(a.cost<100) titles=['小肥也是肥','摸了把边角料'];
+  else if(a.cost<1000) titles=['这波得吃','背包有点分量'];
+  else if(a.cost<3000) titles=['肥肥撤离','这波满载而归'];
+  else titles=['大金到手，满包撤离','背包直接爆仓'];
+  const cacheLines=a.hitRate>=.85
+    ? ['缓存命中像安全箱，没白扛枪线。','这命中率，跑刀都摸出大货。']
+    : a.hitRate>=.6
+      ? ['缓存有货，没把把硬刚。','命中率还行，背包没被打成筛子。']
+      : ['缓存偏薄，这波主要靠硬刚。','命中率一般，多少有点莽。'];
+  const scope=state.day?state.day+' 这一局':state.hour!==null?state.hour+':00 这一小时':state.month==='ALL'?'全量背包结算':state.month+' 这局';
+  const squad=state.device?'单排 · '+state.device:(DEVICES.length===1?'单排':DEVICES.length===2?'双排':DEVICES.length+' 排');
+  const model=state.model!==null?' · 只摸 '+D.models[state.model][M_DISPLAY]:'';
+  const line=a.n===0?'当前筛选没有调用，换个月份或重置筛选，别空手蹲撤离点。':pick(cacheLines);
+  $('#memeTitle').textContent=pick(titles);
+  $('#memeLine').textContent=squad+' · '+scope+model+' · '+line;
+  $('#memeValue').textContent=cny(a.cost);
+  const share=D.meta.total_api_cost>0?Math.min(1,a.cost/D.meta.total_api_cost):0;
+  $('#memeShare').textContent='本局带出价值 · 占全量 '+pct(share);
+  $('#memeMeterFill').style.width=(share*100).toFixed(2)+'%';
+}
 
 /* ---------- heatmap ---------- */
 function renderHeat(){
@@ -1111,7 +1178,7 @@ function renderPricing(){
 /* ---------- init / controls ---------- */
 function renderAll(){
   filterCache=new Map(); aggCache=new WeakMap();
-  renderKpis(); renderHeat(); renderSide(); renderDistribution();
+  renderKpis(); renderMeme(); renderHeat(); renderSide(); renderDistribution();
   renderChips(); renderCrumbs(); renderTable(); renderPricing();
   $('#navMeta').textContent=`${nf(D.meta.n_calls)} 次调用 · ${D.meta.n_models} 个模型`+(MULTI?` · ${DEVICES.length} 台设备`:'');
   $('#scopeTxt').textContent=scopeLabel()+(state.day?' · '+state.day:'')+(state.hour!==null?' · '+state.hour+':00':'')+
@@ -1119,6 +1186,8 @@ function renderAll(){
   saveView();
 }
 function initControls(){
+  $('#memeToggle').addEventListener('click',()=>{state.meme=!state.meme;saveView();renderMeme();});
+  $('#memeNext').addEventListener('click',()=>{state.memeIndex=(state.memeIndex+1)%1000;saveView();renderMeme();});
   $('#monthSel').innerHTML=months.slice().reverse().map(m=>`<option value="${m}">${m}</option>`).join('')+'<option value="ALL">全部时间</option>';
   $('#monthSel').value=state.month;
   $('#monthSel').addEventListener('change',e=>{state.month=e.target.value;resetTimeDrill();renderAll();});
