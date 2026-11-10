@@ -269,7 +269,8 @@ class TestMultiDevice(unittest.TestCase):
             a, b = _fake_home(td, "laptop", 2), _fake_home(td, "desktop", 3)
             sources = [{"device": "laptop", "home": a, "bundle": None},
                        {"device": "desktop", "home": b, "bundle": None}]
-            data = collect.collect_from_sources(sources, ROOT / "config" / "pricing.json", False)
+            data = collect.collect_from_sources(sources, ROOT / "config" / "pricing.json", False,
+                                                alias_config=Path(td) / "missing-aliases.json")
             self.assertEqual(data["meta"]["devices"], ["desktop", "laptop"])
             self.assertEqual(data["meta"]["n_calls"], 5)
             self.assertEqual(data["meta"]["n_sessions"], 2)   # session UUID 相同但设备前缀不同
@@ -287,7 +288,8 @@ class TestMultiDevice(unittest.TestCase):
             p.write_text(json.dumps(bundle, ensure_ascii=False), encoding="utf-8")
             # 同一个包塞两次，去重后不能翻倍
             sources = [{"device": None, "home": None, "bundle": p}] * 2
-            data = collect.collect_from_sources(sources, ROOT / "config" / "pricing.json", False)
+            data = collect.collect_from_sources(sources, ROOT / "config" / "pricing.json", False,
+                                                alias_config=Path(td) / "missing-aliases.json")
             self.assertEqual(data["meta"]["n_calls"], 2)
             self.assertEqual(data["meta"]["devices"], ["laptop"])
 
@@ -321,6 +323,41 @@ class TestMultiDevice(unittest.TestCase):
             self.assertTrue(all(x["bundle"] for x in only))
             both = collect.resolve_sources([], [str(sdir)], "", False, True)
             self.assertEqual(len(both), 2)
+
+
+class TestDeviceAliases(unittest.TestCase):
+    """同一台机器被导出成不同设备名时，别名规范后应只算一次。"""
+
+    def test_alias_dedupes_local_logs_and_old_bundle(self):
+        with tempfile.TemporaryDirectory() as td:
+            home = _fake_home(td, "laptop", 2)
+            bundle = collect.make_bundle(home, "LAPTOP-P2H87FP2", False)
+            p = Path(td) / "LAPTOP-P2H87FP2.json"
+            p.write_text(json.dumps(bundle, ensure_ascii=False), encoding="utf-8")
+            alias = Path(td) / "device-aliases.json"
+            alias.write_text(json.dumps({
+                "_comment": "本机就是 laptop",
+                "aliases": {"LAPTOP-P2H87FP2": "本机"},
+            }, ensure_ascii=False), encoding="utf-8")
+            sources = [
+                {"device": "本机", "home": home, "bundle": None},
+                {"device": None, "home": None, "bundle": p},
+            ]
+            self.assertEqual(collect.load_device_aliases(alias),
+                             {"LAPTOP-P2H87FP2": "本机"})
+            data = collect.collect_from_sources(
+                sources, ROOT / "config" / "pricing.json", False, alias_config=alias)
+            self.assertEqual(data["meta"]["n_calls"], 2)
+            self.assertEqual(data["meta"]["devices"], ["本机"])
+            self.assertAlmostEqual(data["meta"]["total_credit"], 0.2)
+            # 导出端不受别名影响，避免把对端节点标题偷偷改掉
+            self.assertEqual(collect.make_bundle(home, "LAPTOP-P2H87FP2", False)["device"],
+                             "LAPTOP-P2H87FP2")
+            raw = collect.collect_from_sources(
+                sources, ROOT / "config" / "pricing.json", False,
+                alias_config=Path(td) / "missing.json")
+            self.assertEqual(raw["meta"]["n_calls"], 4)
+            self.assertEqual(len(raw["meta"]["devices"]), 2)
 
 
 class TestPeerPull(unittest.TestCase):
@@ -437,6 +474,7 @@ class TestDownloadPage(unittest.TestCase):
                 names = z.namelist()
             self.assertIn("workbuddy-token-exporter/deploy/START-NODE.bat", names)
             self.assertFalse(any(n.endswith("/peers.json") for n in names))
+            self.assertFalse(any(n.endswith("/device-aliases.json") for n in names))
             self.assertNotIn("__B64__", html)
 
 
@@ -631,6 +669,23 @@ class TestRemoteStats(unittest.TestCase):
                 rows = list(csv.reader(fh))
             self.assertEqual(rows[0][0], "scope")
             self.assertTrue(any(r[0] == "device" and r[1] == "设备A" for r in rows[1:]))
+
+    def test_overlap_warning_respects_device_aliases(self):
+        import remote_stats  # noqa: PLC0415
+        with tempfile.TemporaryDirectory() as td:
+            home = _fake_home(td, "laptop", 2)
+            p = Path(td) / "LAPTOP-P2H87FP2.json"
+            p.write_text(json.dumps(collect.make_bundle(home, "LAPTOP-P2H87FP2", False),
+                                   ensure_ascii=False), encoding="utf-8")
+            alias = Path(td) / "aliases.json"
+            alias.write_text(json.dumps({"aliases": {"LAPTOP-P2H87FP2": "本机"}},
+                                        ensure_ascii=False), encoding="utf-8")
+            warned = remote_stats.overlap_warning([p], home,
+                                                  alias_config=Path(td) / "missing.json")
+            self.assertIn("⚠", warned)
+            handled = remote_stats.overlap_warning([p], home, alias_config=alias)
+            self.assertIn("设备别名已排除", handled)
+            self.assertNotIn("⚠", handled)
 
 
 if __name__ == "__main__":

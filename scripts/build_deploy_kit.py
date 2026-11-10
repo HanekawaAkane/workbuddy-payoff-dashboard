@@ -28,7 +28,7 @@ SKIP_SUFFIX = {".pyc", ".pyo", ".log", ".db", ".sqlite", ".sqlite3"}
 # 含共享密钥 / 本机产物的文件绝不进部署包
 SKIP_FILES = {
     "peers.json", "peers.demo.json", "library-sync.json", "library-target.json",
-    "settings.local.json", "credentials.json", ".env",
+    "device-aliases.json", "settings.local.json", "credentials.json", ".env",
     "publish-manifest.json", "START-NODE-COMMAND.txt",
 }
 TOP_DIR = "workbuddy-token-exporter"

@@ -32,6 +32,8 @@ from bisect import bisect_right
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parent.parent
+ALIAS_CONFIG = ROOT / "config" / "device-aliases.json"
 CST = timezone(timedelta(hours=8))
 SEGMENTS = ("input_miss", "output", "cache_hit", "cache_write")
 KIND_MAP = {"function_call": 0, "message": 1, "reasoning": 2, "model-usage": 3}
@@ -573,25 +575,68 @@ def _call_uid(c: dict):
                             c["hit"], c["miss"], c["out"], c["write"])
 
 
+def load_device_aliases(path: Path | None = None) -> dict[str, str]:
+    """读取「同一台机器曾用的不同设备名 → 规范设备名」映射。
+
+    配置是本机私有的，不入库、不进部署包。支持 `{"aliases": {...}}` 或扁平对象；
+    下划线开头的说明字段会被忽略。
+    """
+    cfg = Path(path or ALIAS_CONFIG)
+    if not cfg.exists():
+        return {}
+    obj = json.loads(cfg.read_text(encoding="utf-8"))
+    raw = obj.get("aliases", obj) if isinstance(obj, dict) else {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"设备别名配置格式错误: {cfg}")
+    return {str(k): str(v) for k, v in raw.items()
+            if k and v and not str(k).startswith("_") and str(k) != str(v)}
+
+
+def canonicalize_source(result, aliases: dict[str, str]):
+    """把别名源的 `<设备名>::` 前缀改成规范名，使跨源 UID 去重生效。"""
+    dev, calls, bills, sessions, prompts = result
+    target = aliases.get(str(dev), str(dev))
+    if target == str(dev):
+        return result
+    old, new = f"{dev}::", f"{target}::"
+    def rep(value):
+        s = str(value)
+        return new + s[len(old):] if s.startswith(old) else s
+    norm_calls = []
+    for c in calls:
+        item = dict(c)
+        for key in ("sid", "uid"):
+            if key in item:
+                item[key] = rep(item[key])
+        norm_calls.append(item)
+    norm_bills = {rep(k): v for k, v in bills.items()}
+    norm_sessions = {rep(k): {**v, "device": target} for k, v in sessions.items()}
+    norm_prompts = {rep(k): v for k, v in prompts.items()}
+    return target, norm_calls, norm_bills, norm_sessions, norm_prompts
+
+
 def collect_from_sources(sources: list, config_path: Path,
                          with_prompts: bool = True, since_ts: int | None = None,
-                         cache: ScanCache | None = None) -> dict:
+                         cache: ScanCache | None = None,
+                         alias_config: Path | None = None) -> dict:
     """汇总多个设备。
 
     sources: [{"device": 名称, "home": Path 或 None, "bundle": Path 或 None}, ...]
     便携包的设备名以包内 device 字段为准。跨源按调用唯一键去重，允许同一设备增量导出多次。
+    alias_config 可把同一台机器的历史设备名规范成同一名称，再按 UID 去重。
     """
     global PRICING
     pricing = json.loads(config_path.read_text(encoding="utf-8"))
     PRICING = pricing
     all_calls, all_bills, all_sessions, all_prompts = [], {}, {}, {}
     devices, seen = [], set()
+    aliases = load_device_aliases(alias_config)
     for s in sources:
         if s.get("bundle"):
-            dev, calls, bills, sessions, prompts = load_bundle(s["bundle"], cache)
+            result = load_bundle(s["bundle"], cache)
         else:
-            dev, calls, bills, sessions, prompts = scan_home(
-                s["home"], s["device"], with_prompts, since_ts, cache)
+            result = scan_home(s["home"], s["device"], with_prompts, since_ts, cache)
+        dev, calls, bills, sessions, prompts = canonicalize_source(result, aliases)
         devices.append(dev)
         for c in calls:
             if since_ts and c["ts"] < since_ts:

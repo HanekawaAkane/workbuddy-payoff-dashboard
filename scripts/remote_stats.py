@@ -52,32 +52,39 @@ def build_sources(bundles: list[Path], with_local: bool, home: Path) -> list[dic
     return srcs
 
 
-def overlap_warning(bundles: list[Path], home: Path) -> str:
-    """去掉设备前缀后比对 uid，防止把同一台机器的重复导出当成两台设备。"""
+def overlap_warning(bundles: list[Path], home: Path,
+                    alias_config: Path | None = None) -> str:
+    """去掉设备前缀后比对 uid；已由别名规范为本机的包不参与双计警告。"""
     if not home.exists() or not bundles:
         return ""
     try:
         _, local, _, _, _ = collect.scan_home(home, "本机", False)
     except Exception:  # noqa: BLE001
         return ""
+    aliases = collect.load_device_aliases(alias_config)
     norm = lambda s: str(s).split("::", 1)[-1]  # noqa: E731
     luid = {norm(c.get("uid")) for c in local}
     dup = total = 0
+    ignored = []
     for p in bundles:
         try:
-            _, rc, _, _, _ = collect.load_bundle(p)
+            dev, rc, _, _, _ = collect.load_bundle(p)
         except Exception:  # noqa: BLE001
+            continue
+        if aliases.get(str(dev)) == "本机":
+            ignored.append(p.name)
             continue
         ruid = {norm(c.get("uid")) for c in rc}
         total += len(ruid)
         dup += len(ruid & luid)
+    prefix = f"设备别名已排除本机重复包：{', '.join(ignored)}；" if ignored else ""
     if not total:
-        return ""
+        return prefix + "其余数据源无需做同源检测。"
     pct = dup / total
     if pct > 0.5:
-        return (f"⚠ 与本机数据重合 {dup:,}/{total:,}（{pct:.1%}）——"
+        return (prefix + f"⚠ 与本机数据重合 {dup:,}/{total:,}（{pct:.1%}）——"
                 "这些包很可能就是本机导出的，合并会双计，请勿据此下结论。")
-    return f"与本机 uid 重合 {dup:,}/{total:,}（{pct:.1%}），可视为独立设备数据。"
+    return prefix + f"与本机 uid 重合 {dup:,}/{total:,}（{pct:.1%}），可视为独立设备数据。"
 
 
 def compute(data: dict) -> dict:

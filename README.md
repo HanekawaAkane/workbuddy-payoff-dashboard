@@ -148,6 +148,14 @@ python scripts/run.py   --sources "D:/Sync/wb-devices" --open
 
 便携包默认不含提示词；`sid` 加 `<设备名>::` 前缀，按调用唯一键去重。给了 `--sources` 且没显式 `--home` 时默认不带本机，要一起算加 `--with-local`。
 
+**同一台机器被导出成不同设备名时会双计。** 例如本机同时以 `本机` 读取本地日志、又留着一份 `LAPTOP-P2H87FP2.json` 便携包，两批 UID 只差设备前缀，默认去重认不出来。把 `config/device-aliases.example.json` 复制成本机私有的 `config/device-aliases.json`，填：
+
+```json
+{"aliases": {"LAPTOP-P2H87FP2": "本机"}}
+```
+
+采集时会先把别名源规范成 `本机::`，再按 UID 去重；本地最新日志会保留，旧包里的重复调用被跳过。该配置含本机名，不入库、不进部署包。
+
 ### 2. 资料库固定节点（推荐）
 
 适合两台设备不总同时在线：

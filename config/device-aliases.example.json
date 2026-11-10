@@ -1,0 +1,6 @@
+{
+  "_comment": "同一台机器曾用的不同导出名映射到规范设备名。复制为 device-aliases.json 后填写；本机私有文件不入库。",
+  "aliases": {
+    "LAPTOP-EXAMPLE": "本机"
+  }
+}
