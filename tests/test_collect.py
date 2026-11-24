@@ -104,6 +104,15 @@ class TestBuild(unittest.TestCase):
         self.assertEqual(data["requests"][0][7], 3.0)
         self.assertEqual(data["requests"][0][10], 0)
 
+    def test_legacy_bill_key_maps_to_nearest_turn(self):
+        # 旧版账单键是 req<微秒时间戳>，与日志里的 hash 请求号对不上，不能静默丢弃
+        legacy = "req" + str(self.calls[0]["ts"] * 1000)
+        bills = {self.sid: {legacy: 7.5}}
+        data = collect.build(PRICING, self.calls, bills, self.db_sessions, False, {})
+        self.assertAlmostEqual(sum(r[7] for r in data["requests"]), 7.5, places=5)
+        self.assertAlmostEqual(data["meta"]["total_credit"], 7.5, places=5)
+        self.assertEqual(data["requests"][0][10], 1)      # 仍按官方账单标记
+
     def test_api_cost_uses_four_segments(self):
         data = collect.build(PRICING, self.calls, {}, self.db_sessions, False, {})
         p = PRICING["models"]["minimax-m3.1-flash"]["price"]

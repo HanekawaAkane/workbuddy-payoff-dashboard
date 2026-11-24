@@ -296,6 +296,34 @@ def build(pricing: dict, calls: list, bills: dict, db_sessions: dict, with_promp
     for idx, c in enumerate(calls):
         groups.setdefault((c["sid"], c["reqid"]), []).append(idx)
 
+    # 旧版 WorkBuddy 的账单键形如 req<微秒时间戳>，与日志里的 hash 请求号对不上，
+    # 直接查表会把这笔积分静默丢掉。按同一会话内时间最近的请求归入，避免遗漏。
+    known = set(groups)
+    repairs: list[tuple[str, str, str, float]] = []
+    for sid, bill in list(bills.items()):
+        if not isinstance(bill, dict):
+            continue
+        orphan = {k: v for k, v in bill.items() if (sid, k) not in known}
+        if not orphan:
+            continue
+        turns = sorted((min(calls[i]["ts"] for i in groups[g]), g[1])
+                       for g in groups if g[0] == sid)
+        if not turns:
+            continue
+        for k, v in orphan.items():
+            raw = str(k)[3:] if str(k).startswith("req") and str(k)[3:].isdigit() else ""
+            if len(raw) >= 16:
+                target = int(raw) / 1000.0      # 微秒 -> 毫秒
+            elif len(raw) >= 13:
+                target = float(raw)             # 毫秒
+            else:
+                continue
+            nearest = min(turns, key=lambda t: abs(t[0] - target))[1]
+            repairs.append((sid, k, nearest, float(v)))
+    for sid, old, new, amount in repairs:
+        bills[sid].pop(old, None)
+        bills[sid][new] = bills[sid].get(new, 0.0) + amount
+
     req_keys = sorted(groups, key=lambda k: min(calls[i]["ts"] for i in groups[k]))
     request_rows, call_rows = [], []
     req_call_rows: list[list[int]] = []

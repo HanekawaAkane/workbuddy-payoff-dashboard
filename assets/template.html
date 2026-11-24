@@ -379,6 +379,11 @@ button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{ou
       <div class="card-head">
         <h3 id="distTitle">每日模型分布</h3>
         <div style="display:flex;gap:9px;flex-wrap:wrap;align-items:center">
+          <div class="seg" id="distMonthSeg">
+            <button id="distPrevM" type="button" title="上个月" aria-label="上个月" style="font-size:14px;font-weight:700;color:var(--text);padding:3px 9px">←</button>
+            <span id="distMonthLabel" style="font-size:11.5px;color:var(--muted);padding:0 4px;min-width:64px;text-align:center">—</span>
+            <button id="distNextM" type="button" title="下个月" aria-label="下个月" style="font-size:14px;font-weight:700;color:var(--text);padding:3px 9px">→</button>
+          </div>
           <div class="seg" id="granSeg">
             <button data-g="day" class="on">按天</button>
             <button data-g="hour">0–24 时</button>
@@ -877,6 +882,8 @@ function dayLabel(ds){
 }
 function renderDistribution(){
   const isDay=state.gran==='day';
+  const ml=$('#distMonthLabel');
+  if(ml){ ml.textContent=state.month==='ALL'?'全部':parseInt(state.month.slice(5,7))+'月'; ml.title=state.month==='ALL'?'全部时间':state.month; }
   const ids=filterCalls(isDay?{skipDay:true}:{skipHour:true});
   // 天粒度：只画有调用记录的日期，按时间排序；小时粒度：固定 24 个桶
   let buckets;
@@ -1225,6 +1232,7 @@ function renderAll(){
   filterCache=new Map(); aggCache=new WeakMap();
   renderKpis(); renderLifetimeStrip(); renderHeat(); renderSide(); renderDistribution();
   renderChips(); renderCrumbs(); renderTable(); renderPricing();
+  $('#monthSel').value=state.month;
   $('#navMeta').textContent=`${nf(D.meta.n_calls)} 次调用 · ${D.meta.n_models} 个模型`+(MULTI?` · ${DEVICES.length} 台设备`:'');
   $('#scopeTxt').textContent=scopeLabel()+(state.day?' · '+state.day:'')+(state.hour!==null?' · '+state.hour+':00':'')+
     (state.device?' · '+state.device:'')+(state.model!==null?' · '+D.models[state.model][M_DISPLAY]:'');
@@ -1245,6 +1253,16 @@ function initControls(){
   $('#prevM').addEventListener('click',()=>{const i=months.indexOf(state.month);if(i>0){state.month=months[i-1];resetTimeDrill();renderAll();}});
   $('#nextM').addEventListener('click',()=>{const i=months.indexOf(state.month);if(i>=0&&i<months.length-1){state.month=months[i+1];resetTimeDrill();renderAll();}});
   $('#allM').addEventListener('click',()=>{state.month=state.month==='ALL'?months[months.length-1]:'ALL';resetTimeDrill();renderAll();});
+  // 分布图内的月份翻页：直接看相邻月份，不必回顶部切换
+  function shiftDistMonth(delta){
+    let i=months.indexOf(state.month);
+    if(i<0) i=months.length-1;                 // 全部时间 -> 最近月份
+    const j=Math.max(0,Math.min(months.length-1,i+delta));
+    if(j===i&&state.month!=='ALL') return;
+    state.month=months[j]; resetTimeDrill(); renderAll();
+  }
+  $('#distPrevM').addEventListener('click',()=>shiftDistMonth(-1));
+  $('#distNextM').addEventListener('click',()=>shiftDistMonth(1));
   $('#metricSeg').querySelectorAll('button').forEach(b=>{
     b.classList.toggle('on',b.dataset.m===state.metric);
     b.addEventListener('click',()=>{state.metric=b.dataset.m;$('#metricSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));renderAll();});
