@@ -146,6 +146,8 @@ class TestRender(unittest.TestCase):
             self.assertIn('renderDistribution()', html)   # 泛化后的堆叠柱渲染
             self.assertIn('id="pager"', html)             # 大表分页，避免一次渲染数万行
             self.assertIn('id="lifetimeCost"', html)       # 历史总花销：全量累计，不随筛选变化
+            self.assertIn('id="lifetimeCredit"', html)     # 并列积分数值：不折人民币
+            self.assertIn('D.meta.total_credit', html)
             self.assertIn('id="lifetimeByModel"', html)
             self.assertIn('id="lifetimeByMonth"', html)
             self.assertIn('历史总花销构成', html)
