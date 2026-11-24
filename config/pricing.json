@@ -128,6 +128,20 @@
       "source": "https://new.qq.com/rain/a/20261104A0ACHC00",
       "source_label": "混元 Hy4 API 定价；WorkBuddy 内 2026-11-04~11-15 限免，积分消耗为 0",
       "price": {"input_miss": 6.0, "output": 18.0, "cache_hit": 0.30, "cache_write": 6.0}
+    },
+    "hy4free": {
+      "vendor": "腾讯混元", "display": "Hy4（免费）", "verified": false,
+      "source": "https://copilot.tencent.com/v2/chat/completions",
+      "source_label": "CodeBuddy IDE 日志模型名；与 hy4-free 视为同一模型",
+      "note": "IDE 日志把 hy4-free 写成 hy4free，按 Hy4 牌价推定。",
+      "price": {"input_miss": 6.0, "output": 18.0, "cache_hit": 0.30, "cache_write": 6.0}
+    },
+    "hy4flash-free": {
+      "vendor": "腾讯混元", "display": "Hy4 Flash（免费）", "verified": false,
+      "source": "https://copilot.tencent.com/v2/chat/completions",
+      "source_label": "CodeBuddy IDE 日志模型名；无独立公开牌价，按 Hy4 上限推定",
+      "note": "日志只有 hy4flash-free，按 Hy4 牌价计，属上限估算，实际可能更低。",
+      "price": {"input_miss": 6.0, "output": 18.0, "cache_hit": 0.30, "cache_write": 6.0}
     }
   }
 }

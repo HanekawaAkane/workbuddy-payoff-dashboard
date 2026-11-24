@@ -740,5 +740,37 @@ class TestCodeBuddyLogs(unittest.TestCase):
             self.assertEqual(bundle["schema"], collect.BUNDLE_SCHEMA)
 
 
+class TestIdeSplit(unittest.TestCase):
+    """便携包里 CodeBuddy IDE 的调用要拆成独立设备，不能混进 WorkBuddy 会话。"""
+
+    def test_ide_calls_split_into_own_device(self):
+        with tempfile.TemporaryDirectory() as td:
+            bundle = {
+                "schema": collect.BUNDLE_SCHEMA, "device": "Trange", "exported_at": "",
+                "calls": [
+                    {"uid": "Trange::ide:m1", "sid": "Trange::ide:s1", "reqid": "r1", "ts": 1,
+                     "model": "hy3", "display": "Hy3", "hit": 1, "miss": 1, "out": 1,
+                     "write": 0, "credit": 2.0, "kind": 3, "is_peak": False},
+                    {"uid": "Trange::m2", "sid": "Trange::s2", "reqid": "r2", "ts": 2,
+                     "model": "hy3", "display": "Hy3", "hit": 1, "miss": 1, "out": 1,
+                     "write": 0, "credit": 1.0, "kind": 0, "is_peak": False},
+                ],
+                "bills": {},
+                "sessions": {
+                    "Trange::ide:s1": {"title": "IDE", "cwd": "", "created_at": 0, "device": "Trange"},
+                    "Trange::s2": {"title": "WB", "cwd": "", "created_at": 0, "device": "Trange"},
+                },
+                "prompts": {},
+            }
+            p = Path(td) / "b.json"
+            p.write_text(json.dumps(bundle, ensure_ascii=False), encoding="utf-8")
+            _, calls, _, sessions, _ = collect.load_bundle(p)
+            ide = [c for c in calls if c["sid"].startswith("Trange·CodeBuddyIDE::")]
+            self.assertEqual(len(ide), 1)
+            self.assertEqual(ide[0]["uid"], "Trange·CodeBuddyIDE::m1")
+            self.assertEqual(sessions["Trange·CodeBuddyIDE::s1"]["device"], "Trange·CodeBuddyIDE")
+            self.assertEqual(sessions["Trange::s2"]["device"], "Trange")
+
+
 if __name__ == "__main__":
     unittest.main()

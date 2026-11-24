@@ -569,6 +569,37 @@ def bundle_from_sources(sources: list, device: str, with_prompts: bool = False,
     return out
 
 
+def _split_ide_device(dev: str, calls: list, bills: dict, sessions: dict, prompts: dict):
+    """把 CodeBuddy IDE 的调用从 WorkBuddy 会话里拆出来，单独成一台设备。
+
+    对端导出时会把这些记录的 sid 写成 ``<device>::ide:<id>``（kind=3）。
+    同一台机器上两套产品的积分口径不同，混在一个设备里会看不出各自用量。
+    """
+    prefix = f"{dev}::ide:"
+    ide_dev = f"{dev}·CodeBuddyIDE"
+    mapping: dict[str, str] = {}
+    for c in calls:
+        sid = str(c.get("sid", ""))
+        if not sid.startswith(prefix):
+            continue
+        new_sid = f"{ide_dev}::{sid[len(prefix):]}"
+        mapping[sid] = new_sid
+        c["sid"] = new_sid
+        uid = str(c.get("uid", ""))
+        if uid.startswith(prefix):
+            c["uid"] = f"{ide_dev}::{uid[len(prefix):]}"
+    if not mapping:
+        return calls, bills, sessions, prompts
+    for old, new in mapping.items():
+        if old in sessions:
+            sessions[new] = {**sessions.pop(old), "device": ide_dev}
+        if old in bills:
+            bills[new] = bills.pop(old)
+        if old in prompts:
+            prompts[new] = prompts.pop(old)
+    return calls, bills, sessions, prompts
+
+
 def _load_bundle(path: Path):
     """还原便携包，结构与 scan_home 输出一致。"""
     obj = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -591,6 +622,7 @@ def _load_bundle(path: Path):
             c["sid"] = f"{dev}::{c['sid']}"
         if not str(c.get("uid", "")).startswith(f"{dev}::"):
             c["uid"] = f"{dev}::{c.get('uid') or c['sid']}"
+    calls, bills, sessions, prompts = _split_ide_device(dev, calls, bills, sessions, prompts)
     return dev, calls, bills, sessions, prompts
 
 
@@ -681,8 +713,10 @@ def collect_from_sources(sources: list, config_path: Path,
         raise FileNotFoundError("所有数据源都没有可用记录")
     all_calls.sort(key=lambda c: c["ts"])
     data = build(pricing, all_calls, all_bills, all_sessions, with_prompts, all_prompts)
-    data["meta"]["devices"] = sorted(set(devices))
-    data["meta"]["multi_device"] = len(set(devices)) > 1
+    # 便携包里的 CodeBuddy IDE 会拆成独立设备，设备清单要按会话实际归属汇总
+    devs = set(devices) | {s.get("device") for s in all_sessions.values() if s.get("device")}
+    data["meta"]["devices"] = sorted(devs)
+    data["meta"]["multi_device"] = len(devs) > 1
     return data
 
 

@@ -37,6 +37,8 @@ WorkBuddy 客户端不提供逐请求的用量明细，但本机留了两类数�
 
 `run.py` 默认会尝试并入（没有 CodeBuddy 或无 usage 时静默跳过），也可用 `--no-codebuddy` 关闭。注意：CodeBuddy 只在部分版本/窗口才写 `usage`，所以覆盖范围可能远小于实际使用；它也不提供余额接口，剩余额度本地拿不到。
 
+如果对端导出的便携包里带有 CodeBuddy IDE 记录（`kind=3`、sid 形如 `<设备>::ide:*`），看板会把它们拆成独立设备 `<设备>·CodeBuddyIDE`，与 WorkBuddy 的会话并列统计，不会混在一起。
+
 **唯一金额口径：**
 
 ```text
