@@ -66,6 +66,15 @@ button,select,input{font:inherit;color:inherit}
 .lifetime-bars .mbar .nm{width:150px}
 .lifetime-bars .mbar .vv{width:86px}
 .lifetime-empty{color:var(--faint);font-size:12px;padding:16px 0;text-align:center}
+/* ---------- 顶部月份切换条 ---------- */
+.monthbar{margin:0 0 14px;padding:9px 13px;border:1px solid var(--border);border-radius:11px;
+  background:var(--surface);display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.monthbar .mb-k{font-size:11.5px;font-weight:700;color:var(--muted);letter-spacing:.02em}
+.monthbar .mb-nav{display:inline-flex;align-items:center;gap:3px;background:var(--surface2);
+  border:1px solid var(--border);border-radius:9px;padding:3px}
+.monthbar .mb-cur{font-size:13px;font-weight:750;min-width:92px;text-align:center;color:var(--text);
+  letter-spacing:-.01em}
+.monthbar .mb-hint{font-size:10.5px;color:var(--faint)}
 .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;padding-bottom:26px}
 .kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:15px 16px;box-shadow:var(--shadow)}
 .kpi .lbl{font-size:11.5px;color:var(--muted);display:flex;align-items:center;gap:6px;margin-bottom:7px}
@@ -306,6 +315,17 @@ button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{ou
         <div class="lifetime-meter" aria-hidden="true"><span id="lifetimeMeter" style="width:0%"></span></div>
         <div class="foot" id="lifetimeCompare"></div>
       </div>
+    </div>
+    <div class="monthbar" id="monthBar">
+      <span class="mb-k">查看月份</span>
+      <div class="mb-nav">
+        <button class="iconbtn" id="topPrevM" type="button" aria-label="上一个月">‹</button>
+        <span class="mb-cur" id="topMonthLabel">—</span>
+        <button class="iconbtn" id="topNextM" type="button" aria-label="下一个月">›</button>
+      </div>
+      <select class="page-size" id="topMonthSel" aria-label="快速跳转月份"></select>
+      <button class="btn" id="topAllM" type="button">全部时间</button>
+      <span class="mb-hint" id="topMonthHint"></span>
     </div>
     <div class="kpis" id="kpis"></div>
   </div>
@@ -821,6 +841,7 @@ function renderHeat(){
   $('#nextM').disabled = m==='ALL' || months.indexOf(m)>=months.length-1;
   $('#monthSel').value=m;
   $('#allM').textContent=m==='ALL'?'最近月份':'全部时间';
+  syncMonthControls();
 }
 function metricField(){ return state.metric==='credit'?'credit':state.metric==='cost'?'cost':'total'; }
 function heatColors(){ return ['#eef0fb','#dcd9fb','#c3bdf6','#a49cf0','#8177e9','#5b4fd8']; }
@@ -1228,11 +1249,34 @@ function renderPricing(){
 }
 
 /* ---------- init / controls ---------- */
+function monthText(m){
+  if(m==='ALL') return '全部时间';
+  return m.slice(0,4)+'年'+parseInt(m.slice(5,7))+'月';
+}
+function setMonth(m){ state.month=m; resetTimeDrill(); renderAll(); }
+function stepMonth(delta){
+  let i=months.indexOf(state.month);
+  if(i<0) i=months.length-1;                    // 全部时间 -> 最近月份
+  const j=Math.max(0,Math.min(months.length-1,i+delta));
+  if(j===i&&state.month!=='ALL') return;
+  setMonth(months[j]);
+}
+function syncMonthControls(){
+  const m=state.month, i=months.indexOf(m);
+  const txt=monthText(m);
+  for(const sel of ['#monthLabel','#topMonthLabel']){ const el=$(sel); if(el) el.textContent=txt; }
+  for(const sel of ['#prevM','#topPrevM']){ const el=$(sel); if(el) el.disabled=m==='ALL'||i<=0; }
+  for(const sel of ['#nextM','#topNextM']){ const el=$(sel); if(el) el.disabled=m==='ALL'||i>=months.length-1; }
+  for(const sel of ['#monthSel','#topMonthSel']){ const el=$(sel); if(el&&el.value!==m) el.value=m; }
+  for(const sel of ['#allM','#topAllM']){ const el=$(sel); if(el) el.textContent=m==='ALL'?'最近月份':'全部时间'; }
+  const hint=$('#topMonthHint');
+  if(hint) hint.textContent=m==='ALL'?'看全部月份':'共 '+months.length+' 个月可切换 · 影响下方统计';
+}
 function renderAll(){
   filterCache=new Map(); aggCache=new WeakMap();
   renderKpis(); renderLifetimeStrip(); renderHeat(); renderSide(); renderDistribution();
   renderChips(); renderCrumbs(); renderTable(); renderPricing();
-  $('#monthSel').value=state.month;
+  syncMonthControls();
   $('#navMeta').textContent=`${nf(D.meta.n_calls)} 次调用 · ${D.meta.n_models} 个模型`+(MULTI?` · ${DEVICES.length} 台设备`:'');
   $('#scopeTxt').textContent=scopeLabel()+(state.day?' · '+state.day:'')+(state.hour!==null?' · '+state.hour+':00':'')+
     (state.device?' · '+state.device:'')+(state.model!==null?' · '+D.models[state.model][M_DISPLAY]:'');
@@ -1240,9 +1284,13 @@ function renderAll(){
 }
 function initControls(){
   renderLifetimeBreakdown();
-  $('#monthSel').innerHTML=months.slice().reverse().map(m=>`<option value="${m}">${m}</option>`).join('')+'<option value="ALL">全部时间</option>';
+  const monthOpts=months.slice().reverse().map(m=>`<option value="${m}">${m}</option>`).join('')+'<option value="ALL">全部时间</option>';
+  $('#monthSel').innerHTML=monthOpts;
+  $('#topMonthSel').innerHTML=monthOpts;
   $('#monthSel').value=state.month;
-  $('#monthSel').addEventListener('change',e=>{state.month=e.target.value;resetTimeDrill();renderAll();});
+  $('#topMonthSel').value=state.month;
+  $('#monthSel').addEventListener('change',e=>setMonth(e.target.value));
+  $('#topMonthSel').addEventListener('change',e=>setMonth(e.target.value));
   if(MULTI){
     $('#deviceCtl').style.display='';
     $('#deviceSel').innerHTML='<option value="">全部设备</option>'+
@@ -1250,19 +1298,15 @@ function initControls(){
     $('#deviceSel').value=state.device||'';
     $('#deviceSel').addEventListener('change',e=>{state.device=e.target.value||null;resetTimeDrill();renderAll();});
   }
-  $('#prevM').addEventListener('click',()=>{const i=months.indexOf(state.month);if(i>0){state.month=months[i-1];resetTimeDrill();renderAll();}});
-  $('#nextM').addEventListener('click',()=>{const i=months.indexOf(state.month);if(i>=0&&i<months.length-1){state.month=months[i+1];resetTimeDrill();renderAll();}});
-  $('#allM').addEventListener('click',()=>{state.month=state.month==='ALL'?months[months.length-1]:'ALL';resetTimeDrill();renderAll();});
-  // 分布图内的月份翻页：直接看相邻月份，不必回顶部切换
-  function shiftDistMonth(delta){
-    let i=months.indexOf(state.month);
-    if(i<0) i=months.length-1;                 // 全部时间 -> 最近月份
-    const j=Math.max(0,Math.min(months.length-1,i+delta));
-    if(j===i&&state.month!=='ALL') return;
-    state.month=months[j]; resetTimeDrill(); renderAll();
-  }
-  $('#distPrevM').addEventListener('click',()=>shiftDistMonth(-1));
-  $('#distNextM').addEventListener('click',()=>shiftDistMonth(1));
+  // 月份切换：顶部条、热力图、分布图三处共用同一套逻辑
+  $('#prevM').addEventListener('click',()=>stepMonth(-1));
+  $('#nextM').addEventListener('click',()=>stepMonth(1));
+  $('#topPrevM').addEventListener('click',()=>stepMonth(-1));
+  $('#topNextM').addEventListener('click',()=>stepMonth(1));
+  $('#allM').addEventListener('click',()=>setMonth(state.month==='ALL'?months[months.length-1]:'ALL'));
+  $('#topAllM').addEventListener('click',()=>setMonth(state.month==='ALL'?months[months.length-1]:'ALL'));
+  $('#distPrevM').addEventListener('click',()=>stepMonth(-1));
+  $('#distNextM').addEventListener('click',()=>stepMonth(1));
   $('#metricSeg').querySelectorAll('button').forEach(b=>{
     b.classList.toggle('on',b.dataset.m===state.metric);
     b.addEventListener('click',()=>{state.metric=b.dataset.m;$('#metricSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));renderAll();});
