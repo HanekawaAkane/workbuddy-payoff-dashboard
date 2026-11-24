@@ -648,6 +648,11 @@ if(state.day&&state.month!=='ALL'&&!state.day.startsWith(state.month+'-')) state
 if(state.hour!==null&&(!Number.isInteger(state.hour)||state.hour<0||state.hour>23)) state.hour=null;
 if(state.model!==null&&(!Number.isInteger(state.model)||!D.models[state.model])) state.model=null;
 if(state.device&&!DEVICES.includes(state.device)) state.device=null;
+// 恢复的视图可能停在该设备没有数据的月份（如 CodeBuddy 只有 10 月），自动对齐
+if(state.device&&state.month!=='ALL'&&!deviceHasMonth(state.device,state.month)){
+  const lm=deviceLastMonth(state.device);
+  if(lm) state.month=lm;
+}
 if(!['tokens','credit','cost'].includes(state.metric)) state.metric='tokens';
 if(!['day','hour'].includes(state.gran)) state.gran='day';
 if(![50,100,200].includes(state.pageSize)) state.pageSize=50;
@@ -1254,6 +1259,22 @@ function monthText(m){
   return m.slice(0,4)+'年'+parseInt(m.slice(5,7))+'月';
 }
 function setMonth(m){ state.month=m; resetTimeDrill(); renderAll(); }
+function deviceLastMonth(dev){
+  let best=null;
+  for(let i=0;i<D.calls.length;i++){
+    if(dev&&cDev[i]!==dev) continue;
+    if(!best||cDay[i]>best) best=cDay[i];
+  }
+  return best?best.slice(0,7):null;
+}
+function deviceHasMonth(dev,m){
+  if(m==='ALL') return true;
+  for(let i=0;i<D.calls.length;i++){
+    if(dev&&cDev[i]!==dev) continue;
+    if(cMonth[i]===m) return true;
+  }
+  return false;
+}
 function stepMonth(delta){
   let i=months.indexOf(state.month);
   if(i<0) i=months.length-1;                    // 全部时间 -> 最近月份
@@ -1296,7 +1317,16 @@ function initControls(){
     $('#deviceSel').innerHTML='<option value="">全部设备</option>'+
       DEVICES.map(d=>`<option value="${esc(d)}">${esc(d)}</option>`).join('');
     $('#deviceSel').value=state.device||'';
-    $('#deviceSel').addEventListener('change',e=>{state.device=e.target.value||null;resetTimeDrill();renderAll();});
+    $('#deviceSel').addEventListener('change',e=>{
+      const dev=e.target.value||null;
+      state.device=dev;
+      // 设备在当前月份没有数据时（如 CodeBuddy 只有 10 月记录），自动跳到它最近的月份
+      if(dev&&state.month!=='ALL'&&!deviceHasMonth(dev,state.month)){
+        const lm=deviceLastMonth(dev);
+        if(lm) state.month=lm;
+      }
+      resetTimeDrill();renderAll();
+    });
   }
   // 月份切换：顶部条、热力图、分布图三处共用同一套逻辑
   $('#prevM').addEventListener('click',()=>stepMonth(-1));

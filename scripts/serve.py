@@ -342,6 +342,13 @@ def main():
         if not args.no_local and not args.with_local:
             args.with_local = True
 
+    # CodeBuddy 的包单独放一个目录（run.py 会刷新），存在就一并读入
+    cb_dir = ROOT / "output" / "codebuddy"
+    if cb_dir.exists() and any(cb_dir.glob("*.json")) and str(cb_dir) not in sources_dirs:
+        sources_dirs.append(str(cb_dir))
+        if not args.no_local and not args.with_local:
+            args.with_local = True
+
     # 非回环监听时强制不含提示词：否则整个局域网都能看到你的对话摘要
     loopback = args.host in ("127.0.0.1", "localhost", "::1")
     if not loopback and not args.no_prompts:

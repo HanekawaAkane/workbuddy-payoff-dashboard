@@ -29,6 +29,14 @@ WorkBuddy 客户端不提供逐请求的用量明细，但本机留了两类数�
 
 两者通过 `conversationRequestId` 关联。看板用官方账单校准积分，用逐调用日志算厂商牌价，两条路径互不干扰。
 
+**CodeBuddy 用量**是另一套目录和格式，单独用 `scripts/collect_codebuddy.py` 解析：
+
+| 数据 | 位置 | 内容 |
+| --- | --- | --- |
+| 插件日志 | `%LOCALAPPDATA%/CodeBuddyExtension/Logs`、`%APPDATA%/CodeBuddy CN/logs` | `notifyStepEnd` 行里的四段 token 与 `credit` |
+
+`run.py` 默认会尝试并入（没有 CodeBuddy 或无 usage 时静默跳过），也可用 `--no-codebuddy` 关闭。注意：CodeBuddy 只在部分版本/窗口才写 `usage`，所以覆盖范围可能远小于实际使用；它也不提供余额接口，剩余额度本地拿不到。
+
 **唯一金额口径：**
 
 ```text

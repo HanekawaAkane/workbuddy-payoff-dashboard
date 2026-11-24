@@ -708,5 +708,37 @@ class TestRemoteStats(unittest.TestCase):
             self.assertNotIn("⚠", handled)
 
 
+class TestCodeBuddyLogs(unittest.TestCase):
+    """CodeBuddy 插件日志解析：两种时间格式、去重、模型回填。"""
+
+    def test_parse_and_dedupe(self):
+        import collect_codebuddy as cbl  # noqa: PLC0415
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            line = ('[2026/10/28 15:49:17.287] [Info] [BaseAgent:craft] [r1]  notifyStepEnd, '
+                    'step: 1, requestId: r1, messageId: m1, usage: '
+                    '{"inputTokens":100,"outputTokens":20,"totalTokens":120,'
+                    '"cacheTokens":60,"cachedMissTokens":40,"cachedWriteTokens":0,"credit":0.25}')
+            other = ('2026-10-29 10:00:00.000 [info] [BaseAgent:craft]  DeepSeek ModelProvider '
+                     'initialized, modelId: hy3, modelName: Hy3\n'
+                     '2026-10-29 10:00:01.000 [info] [BaseAgent:craft] [r2]  notifyStepEnd, '
+                     'step: 2, requestId: r2, messageId: m2, usage: '
+                     '{"inputTokens":0,"outputTokens":5,"totalTokens":5,'
+                     '"cacheTokens":0,"cachedMissTokens":0,"cachedWriteTokens":0,"credit":0}')
+            (root / "2026-10-28").mkdir()
+            (root / "2026-10-28" / "draw__abc.log").write_text(line + "\n" + line + "\n",
+                                                               encoding="utf-8")
+            (root / "2026-10-29").mkdir()
+            (root / "2026-10-29" / "draw__abc.log").write_text(other, encoding="utf-8")
+
+            bundle = cbl.build_bundle([root])
+            self.assertEqual(len(bundle["calls"]), 2)          # 重复行已去重
+            self.assertAlmostEqual(sum(c["credit"] for c in bundle["calls"]), 0.25, places=6)
+            first = bundle["calls"][0]
+            self.assertEqual((first["hit"], first["miss"], first["out"]), (60, 40, 20))
+            self.assertTrue(any(c["model"] == "hy3" for c in bundle["calls"]))
+            self.assertEqual(bundle["schema"], collect.BUNDLE_SCHEMA)
+
+
 if __name__ == "__main__":
     unittest.main()

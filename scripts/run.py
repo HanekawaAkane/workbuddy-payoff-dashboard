@@ -24,14 +24,34 @@ def main():
     ap.add_argument("--no-latest", action="store_true")
     ap.add_argument("--out", default="", help="指定 HTML 输出路径")
     ap.add_argument("--open", action="store_true", help="生成后用默认浏览器打开（双击即看最新快照）")
+    ap.add_argument("--no-codebuddy", action="store_true",
+                    help="不扫描 CodeBuddy 本地插件日志（默认会尝试并入，失败则跳过）")
     args = ap.parse_args()
 
     py = sys.executable
+    # CodeBuddy 的用量不写在 ~/.workbuddy，先转成便携包放进 output/codebuddy。
+    # 本机没有 CodeBuddy 或日志里没有 usage 时静默跳过，不影响主流程。
+    cb_ok = False
+    if not args.no_codebuddy:
+        cb = subprocess.run([py, str(ROOT / "scripts" / "collect_codebuddy.py")],
+                            cwd=ROOT, capture_output=True, text=True)
+        if cb.returncode == 0:
+            cb_ok = True
+            print("[OK] CodeBuddy 用量包已刷新", flush=True)
+        elif cb.stderr.strip():
+            print(f"[SKIP] CodeBuddy：{cb.stderr.strip().splitlines()[0]}", flush=True)
+
     common = []
     for h in args.home:
         common += ["--home", h]
     for s in args.sources:
         common += ["--sources", s]
+    if cb_ok:
+        # 独立目录，避免和 --sources 指向的共享包目录混在一起
+        common += ["--sources", str(ROOT / "output" / "codebuddy")]
+        if not args.home and not args.no_local:
+            common += ["--with-local"]
+
     if args.device:
         common += ["--device", args.device]
     if args.no_local:

@@ -20,6 +20,13 @@
     "价格会变动。本表是 2026-11-06 的快照，请在发布前重新核对 source 链接。"
   ],
   "models": {
+    "auto": {
+      "vendor": "CodeBuddy", "display": "Auto（未记录具体模型）", "verified": false,
+      "source": "https://copilot.tencent.com/v2/chat/completions",
+      "source_label": "CodeBuddy 日志只记录 modelId=auto，按 Hy3 牌价推定",
+      "note": "CodeBuddy 选「Auto」时日志不写实际模型；按同期 Hy3 牌价推定，属映射估算，未核验。",
+      "price": {"input_miss": 1.0, "output": 4.0, "cache_hit": 0.25, "cache_write": 1.0}
+    },
     "deepseek-v4.1-flash": {
       "vendor": "DeepSeek", "display": "DeepSeek-V4.1-Flash", "verified": true,
       "source": "https://api-docs.deepseek.com/quick_start/pricing",
