@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated_at": "2026-11-06",
+  "updated_at": "2026-11-26",
   "currency": "CNY",
   "price_unit": "元 / 百万 tokens",
   "segments": ["input_miss", "output", "cache_hit", "cache_write"],
@@ -67,6 +67,13 @@
       "source": "https://open.bigmodel.cn/pricing",
       "source_label": "智谱 AI 开放平台定价页",
       "price": {"input_miss": 2.0, "output": 7.0, "cache_hit": 0.57, "cache_write": 2.0}
+    },
+    "glm-5.4": {
+      "vendor": "智谱 AI", "display": "GLM-5.4", "verified": false,
+      "source": "https://open.bigmodel.cn/pricing",
+      "source_label": "智谱官方定价页暂未列出 GLM-5.4；按 GLM-5.3 牌价推定",
+      "note": "2026-11-23 发布；官方按量定价页未单列 GLM-5.4（仅 Coding Plan 订阅制，按量 API 待安全评估）。本表按 GLM-5.3 牌价推定，属上限估算，未核验。",
+      "price": {"input_miss": 8.0, "output": 28.0, "cache_hit": 2.0, "cache_write": 8.0}
     },
     "kimi-k3.1-pro": {
       "vendor": "月之暗面", "display": "Kimi-K3.1-Pro", "verified": true,
